@@ -334,7 +334,7 @@ class Xiphos:
         print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
         repo = git.Repo(search_parent_directories=True)
         sha = repo.head.object.hexsha
-        print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
+        print(f"Git revision:\ngithub.com/hrgrimsl/adapt/commit/{sha}")
 
 
     def random_adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, criteria = 'grad', guesses = 0):
