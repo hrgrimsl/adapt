@@ -1,8 +1,8 @@
 import os
 os.environ["OPENBLAS_NUM_THREADS"] = '1'
 import numpy as np
-import system_methods as sm
-import computational_tools as ct
+import adapt.system_methods as sm
+import adapt.computational_tools as ct
 from opt_einsum import contract
 import openfermion as of
 import scipy

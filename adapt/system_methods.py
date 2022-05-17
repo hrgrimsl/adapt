@@ -46,6 +46,7 @@ class system_data:
                 self.choose_paulis(paulis, sub_list + [let], k)
                         
     def tang_pool(self):
+        #this gives weird warnings...
         M = int(self.N_qubits/2)
         N = int(self.N_e/2)
         #build Spin-adapted GSD pool of fermionic ops

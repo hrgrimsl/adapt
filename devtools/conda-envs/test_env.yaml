@@ -9,12 +9,20 @@ dependencies:
   - python
   - pip
 
+    #Package dependencies
+  - numpy
+  - scipy
+
     # Testing
   - pytest
   - pytest-cov
   - codecov
 
     # Pip-only installs
-  #- pip:
+  - pip:
+    - pyscf
+    - openfermion
+    - gitpython
+    - opt_einsum
   #  - codecov
 
