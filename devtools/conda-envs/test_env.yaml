@@ -24,5 +24,6 @@ dependencies:
     - openfermion
     - gitpython
     - opt_einsum
+    - seaborn
   #  - codecov
 
