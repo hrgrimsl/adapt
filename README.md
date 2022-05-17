@@ -1,8 +1,8 @@
 adapt
 ==============================
 [//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/adapt/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/adapt/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/adapt/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/adapt/branch/master)
+[![GitHub Actions Build Status](https://github.com/hrgrimsl/adapt/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/adapt/actions?query=workflow%3ACI)
+[![codecov](https://codecov.io/gh/hrgrimsl/adapt/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/adapt/branch/master)
 
 
 A Python package to run ADAPT-VQE.
