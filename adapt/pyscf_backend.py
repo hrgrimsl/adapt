@@ -1,4 +1,4 @@
-import system_methods as sm
+import adapt.system_methods as sm
 from pyscf import fci, gto, scf
 from pyscf.lib import logger
 import numpy as np
