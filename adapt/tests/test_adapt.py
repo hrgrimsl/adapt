@@ -4,7 +4,6 @@ Unit and regression test for the adapt package.
 
 # Import package, test suite, and other packages as needed
 import sys
-
 import pytest
 import os
 import adapt
@@ -41,6 +40,6 @@ def test_adapt_vqe():
     ansatz = []
 
 
-    error = xiphos.breadapt(params, ansatz, ref, Etol = 1e-8, guesses = 0, hf = False, n = 1)
+    error = xiphos.breadapt(params, ansatz, ref, Etol = 1e-8, guesses = 0, hf = False, n = 1, threads = 1)
     assert error < 1e-8
   

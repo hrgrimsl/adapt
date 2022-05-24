@@ -413,7 +413,7 @@ class Xiphos:
         sha = repo.head.object.hexsha
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
-    def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, criteria = 'grad', guesses = 0, n = 1, hf = True):
+    def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, criteria = 'grad', guesses = 0, n = 1, hf = True, threads = 1):
         #Loading only really makes sense for n = 1
         #Block Repetition Enhanced ADAPT
         bre_ansatz = copy.copy(ansatz)
@@ -486,7 +486,7 @@ class Xiphos:
             H_vqe = copy.copy(self.H_vqe)
             pool = copy.copy(self.pool)
             ref = copy.copy(self.ref)
-            bre_params = multi_vqe(bre_params, bre_ansatz, H_vqe, pool, ref, self, guesses = guesses, hf = hf)  
+            bre_params = multi_vqe(bre_params, bre_ansatz, H_vqe, pool, ref, self, guesses = guesses, hf = hf, threads = threads)  
             state = t_ucc_state(bre_params, bre_ansatz, self.pool, self.ref)
             np.save(f"{self.system}/bre_params", bre_params)
             np.save(f"{self.system}/bre_ops", bre_ansatz)
@@ -851,7 +851,7 @@ def wfn_grid(op, pool, ref, xiphos):
         print(f"{x} {c0}")
     exit()
 
-def multi_vqe(params, ansatz, H_vqe, pool, ref, xiphos, energy = None, guesses = 0, hf = True):
+def multi_vqe(params, ansatz, H_vqe, pool, ref, xiphos, energy = None, guesses = 0, hf = True, threads = 1):
     os.system('export OPENBLAS_NUM_THREADS=1')
     os.environ['OPENBLAS_NUM_THREADS'] = '1'
     if energy is None or energy == t_ucc_E:
@@ -874,7 +874,7 @@ def multi_vqe(params, ansatz, H_vqe, pool, ref, xiphos, energy = None, guesses =
     iterable = [*zip(param_list, [ansatz for i in range(0, len(param_list))], seeds, [xiphos for j in range(0, len(param_list))])]
 
     start = time.time()
-    with Pool(126) as p:
+    with Pool(threads) as p:
         L = p.starmap(detailed_vqe, iterable = iterable)
     print(f"Time elapsed over whole set of optimizations: {time.time() - start}")
     #params = solution_analysis(L, ansatz, H_vqe, pool, ref, seeds, param_list, E0s, xiphos)
