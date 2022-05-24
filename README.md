@@ -2,7 +2,7 @@ adapt
 ==============================
 [//]: # (Badges)
 [![GitHub Actions Build Status](https://github.com/hrgrimsl/adapt/workflows/CI/badge.svg)](https://github.com/hrgrimsl/adapt/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/hrgrimsl/adapt/branch/master/graph/badge.svg)](https://codecov.io/gh/hrgrimsl/adapt/branch/main)
+[![codecov](https://codecov.io/gh/hrgrimsl/adapt/branch/main/graph/badge.svg?token=4FSXQNA1VK)](https://codecov.io/gh/hrgrimsl/adapt)
 
 
 A Python package to run ADAPT-VQE.
