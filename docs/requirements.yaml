@@ -4,7 +4,7 @@ dependencies:
     # Base depends
   - python
   - pip
-
+  - numpy
 
 
     # Pip-only installs
