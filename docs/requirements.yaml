@@ -12,4 +12,4 @@ dependencies:
     - openfermion
     - git-python
     - opt_einsum
-
+    - sphinx-autoapi
