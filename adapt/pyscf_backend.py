@@ -5,6 +5,35 @@ import numpy as np
 from opt_einsum import contract
 
 def get_integrals(geometry, basis, reference, charge = 0, spin = 0, read = False, chkfile = 'chk', feed_C = False, scf_grad = 1e-14):    
+    """
+    Parameters
+    ----------
+    geometry, basis, reference : string
+         geometry, basis set, and reference.  (I don't trust any reference besides rhf for now...)
+    charge, spin : int
+         charge and spin of the system to feed pyscf
+    read : bool
+         Try to read from chkfile as an initial HF guess?
+    chkfile : string
+         chkfile for pyscf
+    feed_C : bool/numpy array
+         Either False or a set of MO coefficients to use instead of the HF ones
+    scf_grad : float
+         scf gradient tightness in pyscf
+
+    Returns
+    -------
+    E_nuc : float
+        Nuclear repulsion energy
+    H_core, g : numpy array
+        1- and 2- electron integrals
+    D : numpy array
+        Density matrix
+    C : numpy array
+        MO coefficients
+    hf_energy : float
+        HF energy
+    """
     mol = gto.M(atom = geometry, basis = basis, spin = spin, charge = charge, verbose = True)
     mol.verbose = 4
     mol.symmetry = False

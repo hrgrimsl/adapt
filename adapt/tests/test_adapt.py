@@ -35,7 +35,7 @@ def test_adapt_vqe():
 
     pool, v_pool = s.uccsd_pool(approach = 'vanilla')
 
-    xiphos = Xiphos(H, ref, "test", pool, v_pool, sym_ops = {"H": H, "S_z": Sz, "S^2": S2, "N": Nop}, verbose = "DEBUG")
+    xiphos = Xiphos(H, ref, "test", pool, v_pool, sym_ops = {"H": H, "S_z": Sz, "S^2": S2, "N": Nop})
     params = np.array([])
     ansatz = []
 

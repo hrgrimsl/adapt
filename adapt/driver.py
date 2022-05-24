@@ -18,34 +18,25 @@ Eh = 627.5094740631
 
 class Xiphos:
     """Class representing an individual XIPHOS calculation"""
-    def __init__(self, H, ref, system, pool, v_pool, H_adapt = None, H_vqe = None, verbose = "INFO", sym_ops = None, sym_break = None):
+    def __init__(self, H, ref, system, pool, v_pool, H_adapt = None, H_vqe = None, sym_ops = None):
 
         """Initialize a XIPHOS Solver Object.
+        Parameters
+        ----------
+        H, ref : scipy sparse matrix
+            Hamiltonian and reference wfn
+        system : system object
+            System object
+        pool, v_pool : list
+            Lists containing the actual operators (sparse matrices) and their verbal representations respectively
+        H_adapt, H_vqe : scipy sparce matrix
+            Hamiltonians to use for operator addition and VQE respectively, if different than H  
+        sym_ops : dictionary
+            Dictionary of string/sparse matrix pairs to check at each step of the calculation
 
-        :param H: Molecular Hamiltonian.
-        :type H: (2^N,2^N) array-like object
-        :param ref: Reference wavefunction.
-        :type ref: (2^N,1) array-like object
-        :param system: Prescribes a working directory name to dump stuff like .npy files in.
-        :type system: str        
-        :param pool: Pool of operators.
-        :type: list
-        :param v_pool: List of strings associated with operator pool.
-        :type: list
-
-        :param H_adapt: Separate Hamiltonian to use during operator additions.  Defaults to H.
-        :type H_adapt: (2^N,2^N) array-like object, optional
-        :param H_vqe: Separate Hamiltonian to use during parameter minimization.  Defaults to H.
-        :type H_vqe: (2^N,2^N) array-like object, optional
-        :param verbose: Sets the logger level.  Defaults to "INFO". 
-        :type verbose: str, optional
-        :param sym_ops: Dictionary of operators of interest to track. (H, S_z, S^2, N, etc.).  Defaults to {'H': H}. 
-        :type verbose: list, optional
-        :param sym_break: Dictionary of perturbations to use to break symmetry in the CI wavefunction.  Defaults to None.
-        :type sym_break: Array-like, optional
-       
-        :return: None
-        :rtype: NoneType    
+        Returns
+        -------
+        None
         """
           
         self.H = H
@@ -413,9 +404,31 @@ class Xiphos:
         sha = repo.head.object.hexsha
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
-    def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, criteria = 'grad', guesses = 0, n = 1, hf = True, threads = 1):
-        #Loading only really makes sense for n = 1
-        #Block Repetition Enhanced ADAPT
+    def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1):
+        """Run an ADAPT^N Calculation
+        Parameters
+        ----------
+        params, ansatz : list
+            Lists of parameters and operator indices to use as the initial ansatz and parameters
+            Only recommend using non-empty lists for N = 1
+        ref : scipy sparse matrix
+            Reference matrix
+        gtol, Etol : float
+            gradient norm and energy thresholds 
+        max_depth : int
+            Max number of operators to use
+        guesses : int
+            Number of random guesses to try at each step
+        hf : bool
+            Whether to try the HF (all zeros) initialization at each step
+        threads : int
+            Number of threads to use for multiple BFGS threads
+ 
+        Returns
+        -------
+        error : float
+             The error from exact diagonalization
+        """
         bre_ansatz = copy.copy(ansatz)
         bre_params = np.array(params)
         
@@ -428,8 +441,7 @@ class Xiphos:
         while Done == False:
             gradient = 2*np.array([((state.T@(self.H_adapt@(op@state)))[0,0]) for op in self.pool]).real
             gnorm = np.linalg.norm(gradient)
-            if criteria == 'grad':
-                idx = np.argsort(abs(gradient))                 
+            idx = np.argsort(abs(gradient))                 
             E = (state.T@(self.H@state))[0,0].real 
             error = E - self.ed_energies[0]
             fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2

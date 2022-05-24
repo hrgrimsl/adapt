@@ -11,6 +11,18 @@ np.core.arrayprint._line_width = 180
 from opt_einsum import contract
 class system_data:
     def __init__(self, H, ref, N_e, N_qubits):
+        """Initialize system data object
+        Parameters
+        ----------
+        H, ref : scipy sparse matrix
+             Hamiltonian and reference wfn.
+        N_e, N_qubits: int
+             Number of electrons and number of qubits
+        
+        Returns
+        -------
+        None
+        """
         self.N_qubits = N_qubits
         self.ref = ref
         self.H = H
@@ -46,6 +58,16 @@ class system_data:
                 self.choose_paulis(paulis, sub_list + [let], k)
                         
     def tang_pool(self):
+        """Pool from the qubit-ADAPT paper (I think this works but it gives weird warnings.)
+        Parameters
+        ----------
+        None
+  
+        Returns
+        -------
+        jw_pool, fermi_ops : list
+             list of sparse matrix operators and their verbal representations respectively
+        """
         #this gives weird warnings...
         M = int(self.N_qubits/2)
         N = int(self.N_e/2)
@@ -341,6 +363,16 @@ class system_data:
         return jw_pool, v_pool
     
     def uccsd_pool(self, approach = 'vanilla'):
+        """UCCSD-based pool constructor
+        Parameters
+        ----------
+        approach : string
+            'vanilla', 'spin-complement', or 'spin-adapt'
+        Returns
+        -------
+        jw_pool, v_pool : list
+            sparse matrices and verbal representations of operators respectively
+        """ 
         N_qubits = self.N_qubits
         N_e = self.N_e
         pool = []
