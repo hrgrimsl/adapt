@@ -5,8 +5,11 @@ dependencies:
   - python
   - pip
   - numpy
-
+  - scipy
 
     # Pip-only installs
-  #- pip:
+  - pip:
+    - openfermion
+    - git-python
+    - opt_einsum
 
