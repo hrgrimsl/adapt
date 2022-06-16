@@ -404,7 +404,7 @@ class Xiphos:
         sha = repo.head.object.hexsha
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
-    def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1):
+    def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1, seed = 0, criteria = 'grad'):
         """Run an ADAPT^N Calculation
         Parameters
         ----------
@@ -431,7 +431,7 @@ class Xiphos:
         """
         bre_ansatz = copy.copy(ansatz)
         bre_params = np.array(params)
-        
+        np.random.seed(seed = seed)
         state = t_ucc_state(bre_params, bre_ansatz, self.pool, self.ref)
         iteration = len(bre_ansatz)
         print(f"\nADAPT Iteration {iteration}")
@@ -439,9 +439,15 @@ class Xiphos:
         E = (state.T@(self.H@state))[0,0] 
         Done = False
         while Done == False:
-            gradient = 2*np.array([((state.T@(self.H_adapt@(op@state)))[0,0]) for op in self.pool]).real
-            gnorm = np.linalg.norm(gradient)
-            idx = np.argsort(abs(gradient))                 
+            if criteria == 'grad':
+                gradient = 2*np.array([((state.T@(self.H_adapt@(op@state)))[0,0]) for op in self.pool]).real
+                gnorm = np.linalg.norm(gradient)
+                idx = np.argsort(abs(gradient)) 
+            elif criteria == 'random':
+                gradient = [float('NaN') for i in range(0, len(self.pool))] 
+                gnorm = float('NaN')
+                idx = [i for i in range(0, len(self.pool))] 
+                random.shuffle(idx)    
             E = (state.T@(self.H@state))[0,0].real 
             error = E - self.ed_energies[0]
             fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
