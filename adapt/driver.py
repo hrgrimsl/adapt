@@ -965,48 +965,7 @@ def multi_vqe_square(params, ansatz, H_vqe, pool, ref, xiphos, energy = None, gu
         print(L[i][1], flush = True)
     return params
 
-def detailed_vqe_square(params, ansatz, seed, xiphos):
-    energy = t_ucc_E
-    jac = t_ucc_grad
-    hess = t_ucc_hess
-    x0 = params
-    E0 = energy(params, ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref)
-    res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref), options = {'gtol': 1e-8})
-    EF = res.fun
-    gradient = t_ucc_grad(res.x, ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref)
-    jacobian = t_ucc_jac(res.x, ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref)
-    hessian = t_ucc_hess(res.x, ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref)
-    gnorm = np.linalg.norm(gradient)
-    u, s, vh = np.linalg.svd(jacobian.todense())
-    w, v = np.linalg.eigh(hessian)
-    state = t_ucc_state(res.x, ansatz, xiphos.pool, xiphos.ref)
-    fid = ((xiphos.ed_wfns[:,0].T)@state)[0,0].real**2
-    string = "\nSolution Analysis:\n\n"
-    string += f"Doubled Parameters: {len(ansatz)}\n"
-    string += f"Initialization: {seed}\n"
-    string += f"Initial Energy: {E0:20.16f}\n"
-    string += f"Final Energy: {EF:20.16f}\n"
-    string += f"GNorm: {gnorm:20.16f}\n"
-    string += f"Fidelity: {fid:20.16f}\n"
-    string += f"Solution Parameters:\n"
-    for x in res.x:
-        string += f"{x},"
-    string += "\n"
-    string += f"Jacobian Singular Values:\n"
-    for sv in s:
-        string += f"{sv},"
-    string += "\n"
-    string += f"Hessian Eigenvalues:\n"
-    for sv in w:
-        string += f"{sv},"
-    string += "\n"
-    string += f"Operator/ Expectation Value/ Error:\n"
-    for key in xiphos.sym_ops.keys():
-        val = ((state.T)@(xiphos.sym_ops[key]@state))[0,0].real
-        err = val - xiphos.ed_syms[0][key]
-        string += f"{key:<6}:      {val:20.16f}      {err:20.16f}\n"
-    string += '\n\n'
-    return [res, string]
+
 
 def detailed_kup(params, seed, k, xiphos):
     energy = kup_E

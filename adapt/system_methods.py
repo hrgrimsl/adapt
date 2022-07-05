@@ -362,6 +362,37 @@ class system_data:
         print(len(pool)) 
         return jw_pool, v_pool
     
+    def pair_pool(self):
+        """UPCCGSD-based pool constructor
+        Returns
+        -------
+        jw_pool, v_pool : list
+            sparse matrices and verbal representations of operators respectively
+        """ 
+        N_qubits = self.N_qubits
+        N_e = self.N_e
+        pool = []
+        v_pool = []
+        for p in range(0, int(N_qubits/2)):
+            for q in range(p+1, int(N_qubits/2)):
+                 pool.append(of.ops.FermionOperator(str(2*q)+'^ '+str(2*p), 1)+of.ops.FermionOperator(str(2*q+1)+'^ '+str(2*p+1)))
+                 v_pool.append(f"{2*p}->{2*q}")
+                 pool.append(of.ops.FermionOperator(str(2*q+1)+'^ '+str(2*q)+'^ '+str(2*p)+' '+str(2*p+1), 1))
+                 v_pool.append(f"{p},{p}->{q},{q}")
+        #Normalized based on action on reference.
+        for i in range(0, len(pool)):
+             op = copy.copy(pool[i])
+             op -= of.hermitian_conjugated(op)
+             op = of.normal_ordered(op)
+             assert(op.many_body_order() > 0)
+
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = N_qubits).real) for i in pool]
+
+        self.pool = pool
+        print("Operators in pool:")
+        print(len(pool)) 
+        return jw_pool, v_pool
+
     def uccsd_pool(self, approach = 'vanilla'):
         """UCCSD-based pool constructor
         Parameters
