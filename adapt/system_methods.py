@@ -651,11 +651,14 @@ class system_data:
                 for a in range(i+1, N_qubits):
                     if (i+a)%2 == 0:
                         pool.append(of.ops.FermionOperator(str(a)+'^ '+str(i), 1))
+                        v_pool.append(f"{i}->{a}")
                     for j in range(i+1, N_qubits):
                         for b in range(a+1, N_qubits):
                             if i%2+j%2 == a%2+b%2:
                                 pool.append(of.ops.FermionOperator(str(b)+'^ '+str(a)+'^ '+str(i)+' '+str(j), 1))
-              
+                                v_pool.append(f"{i}{j}->{a}{b}")
+
+
         elif spin_adapt == True:
            M = int(N_qubits/2)
            N = int(N_e/2)
