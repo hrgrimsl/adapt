@@ -398,7 +398,7 @@ class system_data:
         Parameters
         ----------
         approach : string
-            'vanilla', 'spin-complement', or 'spin-adapt'
+            'vanilla', 'spin_complement', or 'spin_adapt'
         Returns
         -------
         jw_pool, v_pool : list
