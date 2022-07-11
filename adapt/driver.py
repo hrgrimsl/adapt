@@ -423,6 +423,10 @@ class Xiphos:
             Whether to try the HF (all zeros) initialization at each step
         threads : int
             Number of threads to use for multiple BFGS threads
+        seed : int
+            Seed for random number generator
+        criteria : string
+            Criterion to use for operator addition
  
         Returns
         -------
@@ -523,6 +527,235 @@ class Xiphos:
         sha = repo.head.object.hexsha
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
         return error
+
+    def gd_t_ucc_state(self, params, ansatz):
+        state = copy.copy(self.ref).todense()
+        for i in reversed(range(0, len(ansatz))):
+            U = self.unitaries[ansatz[i]]
+            v = self.diags[ansatz[i]].T
+            exp_v = np.exp(params[i]*v)
+            exp_v = exp_v.reshape(exp_v.shape[0], 1)
+            state = U.T.conjugate().dot(state)
+            state = np.multiply(exp_v, state)
+            state = U.dot(state)
+            state = state.real
+
+        return state
+
+    def gd_t_ucc_E(self, params, ansatz):
+        state = self.gd_t_ucc_state(params, ansatz)
+        E = (state.T@(self.H_vqe)@state)[0,0].real       
+        return E
+
+    def gd_t_ucc_grad(self, params, ansatz):
+        state = self.gd_t_ucc_state(params, ansatz)
+        hstate = self.H_vqe@state
+        grad = [2*((hstate.T)@self.pool[ansatz[0]]@state)[0,0]]
+
+        hstack = np.hstack([hstate,state]) 
+
+        for i in range(0, len(params)-1):
+            #hstack = scipy.sparse.linalg.expm_multiply(-params[i]*self.pool[ansatz[i]], hstack).tocsr()
+            U = self.unitaries[ansatz[i]]
+            v = self.diags[ansatz[i]].T
+            exp_inv_v = np.exp(-params[i]*v)
+            exp_inv_v = exp_inv_v.reshape(exp_inv_v.shape[0], 1)
+            hstack = U.T.conjugate().dot(hstack)
+            hstack = np.multiply(exp_inv_v, hstack)
+            hstack = U.dot(hstack)
+            grad.append(2*((hstack[:,0].T)@self.pool[ansatz[i+1]]@hstack[:,1])[0,0])
+        grad = np.array(grad)
+        return grad.real
+       
+    def gd_detailed_vqe(self, params, ansatz, seed):
+        energy = self.gd_t_ucc_E
+        jac = self.gd_t_ucc_grad
+
+        x0 = params
+        E0 = energy(params, ansatz)
+        res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz), options = {'gtol': 1e-8})
+
+        EF = res.fun
+
+        gradient = res.jac
+        gnorm = np.linalg.norm(gradient)
+        state = self.gd_t_ucc_state(res.x, ansatz)
+        fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
+        string = "\nSolution Analysis:\n\n"
+        string += f"Parameters: {len(ansatz)}\n"
+        string += f"Initialization: {seed}\n"
+        string += f"Initial Energy: {E0:20.16f}\n"
+        string += f"Final Energy: {EF:20.16f}\n"
+        string += f"GNorm: {gnorm:20.16f}\n"
+        string += f"Fidelity: {fid:20.16f}\n"
+        string += f"Success: {res.success}\n"
+        string += f"Energy Evals: {res.nfev+1}\n"
+        string += f"Gradient Evals: {res.njev}\n"
+        string += f"Initial Parameters:\n"
+        for x in x0:
+            string += f"{x},"
+        string += "\n"
+        string += f"Solution Parameters:\n"
+        for x in res.x:
+            string += f"{x},"
+        string += "\n"
+
+        string += f"Operator/ Expectation Value/ Error:\n"
+        for key in self.sym_ops.keys():
+            val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+            err = val - self.ed_syms[0][key]
+            string += f"{key:<6}:      {val:20.16f}      {err:20.16f}\n"
+        string += '\n\n'
+        return [res, string]
+
+    def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1):
+        os.system('export OPENBLAS_NUM_THREADS=1')
+        os.environ['OPENBLAS_NUM_THREADS'] = '1'
+        param_list = [copy.copy(params)]
+        seeds = ['Recycled']
+        if hf == True:
+            seeds.append('HF')
+            param_list.append(0*params)
+        for i in range(0, guesses):
+            seed = i+guesses*(len(params)-1)
+            seeds.append(seed)
+            np.random.seed(seed)
+            param_list.append(math.pi*2*np.random.rand(len(params)))
+
+        iterable = [*zip(param_list, [ansatz for i in range(0, len(param_list))], seeds)]
+    
+        start = time.time()
+        with Pool(threads) as p:
+            L = p.starmap(self.gd_detailed_vqe, iterable = iterable)
+        print(f"Time elapsed over whole set of optimizations: {time.time() - start}")
+        params = L[0][0].x
+        idx = np.argsort([L[i][0].fun for i in range(0, len(L))])
+        for i in idx:
+            print(L[i][1], flush = True)
+        return params
+
+    def gd_adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0):
+        """Run an ADAPT^N Calculation
+        Parameters
+        ----------
+        params, ansatz : list
+            Lists of parameters and operator indices to use as the initial ansatz and parameters
+            Only recommend using non-empty lists for N = 1
+        ref : scipy sparse matrix
+            Reference matrix
+        gtol, Etol : float
+            gradient norm and energy thresholds 
+        max_depth : int
+            Max number of operators to use
+        guesses : int
+            Number of random guesses to try at each step
+        hf : bool
+            Whether to try the HF (all zeros) initialization at each step
+        threads : int
+            Number of threads to use for multiple BFGS threads
+        seed : int
+            Seed for random number generator
+ 
+        Returns
+        -------
+        error : float
+             The error from exact diagonalization
+        """
+
+        self.diags = [None for i in self.v_pool]
+        self.unitaries = [None for i in self.v_pool]
+
+        np.random.seed(seed = seed)
+
+        state = self.gd_t_ucc_state(params, ansatz)
+        iteration = len(ansatz)
+        print(f"\nADAPT Iteration {iteration}")
+        print("Performing ADAPT:")
+        E = (state.T@(self.H@state))[0,0] 
+        Done = False
+        while Done == False:
+
+            gradient = 2*np.array([((state.T@(self.H_adapt@(op@state)))[0,0]) for op in self.pool]).real
+            gnorm = np.linalg.norm(gradient)
+            idx = np.argsort(abs(gradient)) 
+
+            E = (state.T@(self.H@state))[0,0].real 
+            error = E - self.ed_energies[0]
+            fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
+            print(f"\nBest Initialization Information:")
+            print(f"Operator/ Expectation Value/ Error")
+
+            for key in self.sym_ops.keys():
+                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+                
+            print(f"Next operator to be added: {self.v_pool[idx[-1]]}")
+            print(f"Operator multiplicity {1+ansatz.count(idx[-1])}.")                
+            print(f"Associated gradient:       {gradient[idx[-1]]:20.16f}")
+            print(f"Gradient norm:             {gnorm:20.16f}")
+            print(f"Fidelity to ED:            {fid:20.16f}")
+            print(f"Current ansatz:")
+            for i in range(0, len(ansatz)):
+                print(f"{i} {params[i]} {self.v_pool[ansatz[i]]}") 
+            print("|0>")  
+            if gtol is not None and gnorm < gtol:
+                Done = True
+                print(f"\nADAPT finished.  (Gradient norm acceptable.)")
+                continue
+            if max_depth is not None and len(bre_ansatz)+1 > max_depth:
+                Done = True
+                print(f"\nADAPT finished.  (Max depth reached.)")
+                continue
+            if Etol is not None and error < Etol:
+                Done = True
+                print(f"\nADAPT finished.  (Error acceptable.)")
+                continue
+            iteration += 1
+            print(f"\nADAPT Iteration {iteration}")
+
+            ansatz = [idx[-1]] + ansatz
+
+            if self.diags[idx[-1]] is None:
+                #w, v = scipy.linalg.schur(self.pool[idx[-1]].todense(), lwork=None, overwrite_a=True, sort=None, check_finite=True)
+                #w, v = np.linalg.eig(self.pool[idx[-1]].todense())
+                G = self.pool[idx[-1]].todense()
+                H = -1j * G
+                w, v = np.linalg.eigh(H)
+                self.diags[idx[-1]] = 1j * w
+                self.unitaries[idx[-1]] = v
+
+            params = [0] + list(params)
+            print(f"Recycled ansatz:")
+
+            for i in range(0, len(ansatz)):
+                print(f"{i} {params[i]} {self.v_pool[ansatz[i]]}") 
+            print("|0>")  
+
+            H_vqe = copy.copy(self.H_vqe)
+            pool = copy.copy(self.pool)
+            ref = copy.copy(self.ref)
+
+            params = self.gd_multi_vqe(params, ansatz, guesses = guesses, hf = hf, threads = threads)  
+            state = self.gd_t_ucc_state(params, ansatz)
+            np.save(f"{self.system}/params", params)
+            np.save(f"{self.system}/ops", ansatz)
+
+            
+        print(f"\nConverged ADAPT energy:    {E:20.16f}")            
+        print(f"\nConverged ADAPT error:     {error:20.16f}")            
+        print(f"\nConverged ADAPT gnorm:     {gnorm:20.16f}")            
+        print(f"\nConverged ADAPT fidelity:  {fid:20.16f}")            
+        print("\n---------------------------\n")
+        print("\"Adapt.\" - Bear Grylls\n")
+        print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
+        repo = git.Repo(search_parent_directories=True)
+        sha = repo.head.object.hexsha
+        print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
+        return error
+
+
+
 
     def adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, criteria = 'grad', guesses = 0, square = False):
         """Vanilla ADAPT algorithm for arbitrary reference.  No sampling, no tricks, no silliness.  
@@ -777,6 +1010,8 @@ def t_ucc_state(params, ansatz, pool, ref):
         state = scipy.sparse.linalg.expm_multiply(params[i]*pool[ansatz[i]], state)
     return state
 
+
+
 def t_ucc_E(params, ansatz, H_vqe, pool, ref):
     state = t_ucc_state(params, ansatz, pool, ref)
     E = (state.T@(H_vqe)@state).todense()[0,0].real
@@ -868,6 +1103,8 @@ def wfn_grid(op, pool, ref, xiphos):
         c0 = (ref.T@wfn).todense()[0,0]
         print(f"{x} {c0}")
     exit()
+
+
 
 def multi_vqe(params, ansatz, H_vqe, pool, ref, xiphos, energy = None, guesses = 0, hf = True, threads = 1):
     os.system('export OPENBLAS_NUM_THREADS=1')

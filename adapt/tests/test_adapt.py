@@ -40,6 +40,8 @@ def test_adapt_vqe():
     ansatz = []
 
 
-    error = xiphos.breadapt(params, ansatz, ref, Etol = 1e-8, guesses = 0, hf = False, n = 1, threads = 1)
+    error = xiphos.gd_adapt(params, ansatz, ref, Etol = 1e-8, guesses = 0, hf = False, threads = 1)
     assert error < 1e-8
-  
+
+if __name__ == "__main__":
+    test_adapt_vqe()  
