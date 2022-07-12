@@ -703,7 +703,7 @@ class Xiphos:
                 Done = True
                 print(f"\nADAPT finished.  (Gradient norm acceptable.)")
                 continue
-            if max_depth is not None and len(bre_ansatz)+1 > max_depth:
+            if max_depth is not None and len(ansatz)+1 > max_depth:
                 Done = True
                 print(f"\nADAPT finished.  (Max depth reached.)")
                 continue
@@ -717,14 +717,17 @@ class Xiphos:
             ansatz = [idx[-1]] + ansatz
 
             if self.diags[idx[-1]] is None:
-                #w, v = scipy.linalg.schur(self.pool[idx[-1]].todense(), lwork=None, overwrite_a=True, sort=None, check_finite=True)
-                #w, v = np.linalg.eig(self.pool[idx[-1]].todense())
+                print("Diagonalizing operator...")
+                start = time.time()
                 G = self.pool[idx[-1]].todense()
                 H = -1j * G
                 w, v = np.linalg.eigh(H)
                 self.diags[idx[-1]] = 1j * w
+                v[abs(v) < 1e-16] = 0
+                v = scipy.sparse.csc_matrix(v)
                 self.unitaries[idx[-1]] = v
-
+                stop = time.time()
+                print(f"Operator diagonalized in {stop-start} s")
             params = [0] + list(params)
             print(f"Recycled ansatz:")
 
