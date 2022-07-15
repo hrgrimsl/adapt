@@ -101,7 +101,7 @@ class Xiphos:
             print(f"ED Solution {i+1}:")
             ed_dict = {}
             for key in self.sym_ops.keys():
-                val = np.asscalar(v[:,i].T@(self.sym_ops[key]@v[:,i])).real
+                val = (v[:,i].T@(self.sym_ops[key]@v[:,i]))[0,0].real
                 print(f"{key: >6}: {val:20.16f}")
                 ed_dict[key] = copy.copy(val)
             self.ed_syms.append(copy.copy(ed_dict))
