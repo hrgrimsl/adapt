@@ -58,16 +58,14 @@ class system_data:
                 self.choose_paulis(paulis, sub_list + [let], k)
                         
     def tang_pool(self):
-        """Pool from the qubit-ADAPT paper (I think this works but it gives weird warnings.)
-        Parameters
-        ----------
-        None
-  
+        """Pool from the qubit-ADAPT paper
+
         Returns
         -------
         jw_pool, fermi_ops : list
-             list of sparse matrix operators and their verbal representations respectively
+             List of sparse matrix operators and their verbal representations respectively
         """
+
         #this gives weird warnings...
         M = int(self.N_qubits/2)
         N = int(self.N_e/2)
@@ -642,6 +640,17 @@ class system_data:
 
 
     def uccgsd_pool(self, spin_adapt = False):
+        """UCCGSD-based pool constructor
+        Parameters
+        ----------
+        spin_adapt : Bool
+            Do spin-adaptation of the pool?
+
+        Returns
+        -------
+        jw_pool, v_pool : list
+            sparse matrices and verbal representations of operators respectively
+        """ 
         N_qubits = self.N_qubits
         N_e = self.N_e
         pool = []
