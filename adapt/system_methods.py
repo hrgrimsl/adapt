@@ -393,10 +393,12 @@ class system_data:
 
     def uccsd_pool(self, approach = 'vanilla'):
         """UCCSD-based pool constructor
+
         Parameters
         ----------
         approach : string
             'vanilla', 'spin_complement', or 'spin_adapt'
+
         Returns
         -------
         jw_pool, v_pool : list
@@ -641,6 +643,7 @@ class system_data:
 
     def uccgsd_pool(self, spin_adapt = False):
         """UCCGSD-based pool constructor
+
         Parameters
         ----------
         spin_adapt : Bool
