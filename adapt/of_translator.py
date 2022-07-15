@@ -4,8 +4,9 @@ import numpy as np
 from opt_einsum import contract
 from openfermion.linalg import get_sparse_operator
 import openfermion as of
-def of_from_arrays(_0body, _1body, I, N_e, unpaired = 0):
+def of_from_arrays(_0body, _1body, I, N_e, unpaired = 0, n_qubits = None):
     """Compute sparse matrices for ADAPT
+
     Parameters
     ----------
     _0body : float
@@ -27,7 +28,12 @@ def of_from_arrays(_0body, _1body, I, N_e, unpaired = 0):
         S^2, S_z, and number operators 
     """
     _2body = I
-    n_qubits = _1body.shape[0]
+    if n_qubits is None:
+        n_qubits = _1body.shape[0]
+    _1body = _1body[:n_qubits,:n_qubits]
+    I = I[:n_qubits,:n_qubits,:n_qubits,:n_qubits]
+
+
     hamiltonian = of.ops.InteractionOperator(_0body, _1body, _2body)
     hamiltonian = scipy.sparse.csr.csr_matrix(get_sparse_operator(hamiltonian, n_qubits = n_qubits).real)
     H = np.array(hamiltonian)

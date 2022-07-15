@@ -1,11 +1,12 @@
 import adapt.system_methods as sm
-from pyscf import fci, gto, scf
+from pyscf import fci, gto, scf, mcscf
 from pyscf.lib import logger
 import numpy as np
 from opt_einsum import contract
 
-def get_integrals(geometry, basis, reference, charge = 0, spin = 0, read = False, chkfile = 'chk', feed_C = False, scf_grad = 1e-14):    
-    """
+def get_integrals(geometry, basis, reference, charge = 0, spin = 0, read = False, chkfile = 'chk', feed_C = False, scf_grad = 1e-14, active = None):    
+    """Function to get the pyscf integrals and stuff to feed to OpenFermion
+
     Parameters
     ----------
     geometry, basis, reference : string
@@ -20,6 +21,8 @@ def get_integrals(geometry, basis, reference, charge = 0, spin = 0, read = False
          Either False or a set of MO coefficients to use instead of the HF ones
     scf_grad : float
          scf gradient tightness in pyscf
+    active: tuple
+         number of active spatial orbitals and number of active electrons respectively
 
     Returns
     -------
@@ -141,9 +144,15 @@ def get_integrals(geometry, basis, reference, charge = 0, spin = 0, read = False
 
     g -= contract('pqrs->pqsr', g)
     g *= -.25
-    cisolver = fci.FCI(mol, mf.mo_coeff)
-    print("PYSCF FCI:")
-    print(cisolver.kernel(verbose=logger.DEBUG)[0])
+    if active is None:
+        cisolver = fci.FCI(mol, mf.mo_coeff)
+        print("PYSCF FCI:")
+        print(cisolver.kernel(verbose=logger.DEBUG)[0])
+    else:
+        mycas = mcscf.CASCI(mf, active[0], active[1])
+        casci = mycas.kernel(verbose=logger.DEBUG)
+        print("PYSCF CASCI:")
+        print(casci[0])
     return E_nuc, H_core, g, D, C, hf_energy
 
 def get_F(geometry, basis, reference, charge = 0, spin = 0, feed_C = False):

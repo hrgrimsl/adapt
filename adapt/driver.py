@@ -405,7 +405,8 @@ class Xiphos:
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
     def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1, seed = 0, criteria = 'grad'):
-        """Run an ADAPT^N Calculation
+        """Run one or more ADAPT^N Calculations without generator diagonalization
+
         Parameters
         ----------
         params, ansatz : list
@@ -635,7 +636,8 @@ class Xiphos:
         return params
 
     def gd_adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0):
-        """Run an ADAPT^N Calculation
+        """Run one or more ADAPT calculations with diagonalized generators
+
         Parameters
         ----------
         params, ansatz : list
