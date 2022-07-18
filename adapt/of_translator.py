@@ -1,10 +1,11 @@
-
 import scipy
 import numpy as np
 from opt_einsum import contract
 from openfermion.linalg import get_sparse_operator
 import openfermion as of
-def of_from_arrays(_0body, _1body, I, N_e, unpaired = 0, n_qubits = None):
+
+    
+def of_from_arrays(_0body, _1body, I, N_e, unpaired = 0, n_qubits = None, occupied = None, unoccupied = None):
     """Compute sparse matrices for ADAPT
 
     Parameters
@@ -35,8 +36,16 @@ def of_from_arrays(_0body, _1body, I, N_e, unpaired = 0, n_qubits = None):
 
 
     hamiltonian = of.ops.InteractionOperator(_0body, _1body, _2body)
-    hamiltonian = scipy.sparse.csr.csr_matrix(get_sparse_operator(hamiltonian, n_qubits = n_qubits).real)
+    f_hamiltonian = of.ops.FermionOperator()
+    for i in hamiltonian:
+        f_hamiltonian += of.ops.FermionOperator(term = i, coefficient = hamiltonian[i])
+    if occupied is not None:
+         of.transforms.freeze_orbitals(f_hamiltonian, occupied, unoccupied = unoccupied, prune = True)
+
+    hamiltonian = scipy.sparse.csr.csr_matrix(get_sparse_operator(f_hamiltonian, n_qubits = n_qubits).real)
+
     H = np.array(hamiltonian)
+
     #Build Number Operator for Internal Checks
     number_operator = of.ops.FermionOperator()
     for p in range(0, _1body.shape[0]):
