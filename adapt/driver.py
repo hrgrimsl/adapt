@@ -530,6 +530,7 @@ class Xiphos:
         return error
 
     def gd_t_ucc_state(self, params, ansatz):
+
         state = copy.copy(self.ref).todense()
         for i in reversed(range(0, len(ansatz))):
             U = self.unitaries[ansatz[i]]
@@ -557,6 +558,7 @@ class Xiphos:
 
         for i in range(0, len(params)-1):
             #hstack = scipy.sparse.linalg.expm_multiply(-params[i]*self.pool[ansatz[i]], hstack).tocsr()
+
             U = self.unitaries[ansatz[i]]
             v = self.diags[ansatz[i]].T
             exp_inv_v = np.exp(-params[i]*v)
@@ -610,18 +612,19 @@ class Xiphos:
         return [res, string]
 
     def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1):
+        #Now does -pi,pi instead of 0,2pi interval
         os.system('export OPENBLAS_NUM_THREADS=1')
         os.environ['OPENBLAS_NUM_THREADS'] = '1'
         param_list = [copy.copy(params)]
         seeds = ['Recycled']
         if hf == True:
             seeds.append('HF')
-            param_list.append(0*params)
+            param_list.append(list(0*np.array(params)))
         for i in range(0, guesses):
             seed = i+guesses*(len(params)-1)
             seeds.append(seed)
             np.random.seed(seed)
-            param_list.append(math.pi*2*np.random.rand(len(params)))
+            param_list.append(math.pi*2*np.random.rand(len(params))-math.pi)
 
         iterable = [*zip(param_list, [ansatz for i in range(0, len(param_list))], seeds)]
     
@@ -717,6 +720,7 @@ class Xiphos:
             print(f"\nADAPT Iteration {iteration}")
 
             ansatz = [idx[-1]] + ansatz
+            params = [0] + list(params)
 
             if self.diags[idx[-1]] is None:
                 print("Diagonalizing operator...")
@@ -730,7 +734,7 @@ class Xiphos:
                 self.unitaries[idx[-1]] = v
                 stop = time.time()
                 print(f"Operator diagonalized in {stop-start} s")
-            params = [0] + list(params)
+
             print(f"Recycled ansatz:")
 
             for i in range(0, len(ansatz)):
@@ -740,6 +744,7 @@ class Xiphos:
             H_vqe = copy.copy(self.H_vqe)
             pool = copy.copy(self.pool)
             ref = copy.copy(self.ref)
+
 
             params = self.gd_multi_vqe(params, ansatz, guesses = guesses, hf = hf, threads = threads)  
             state = self.gd_t_ucc_state(params, ansatz)

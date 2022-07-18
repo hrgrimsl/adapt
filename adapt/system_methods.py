@@ -587,6 +587,190 @@ class system_data:
         print("Operators in pool:")
         print(len(pool)) 
         return jw_pool, v_pool
+ 
+    def qeb_pool(self):
+        """
+        n_orb is number of spatial orbitals assuming that spin orbitals are labelled
+        0a,0b,1a,1b,2a,2b,3a,3b,....  -> 0,1,2,3,...
+        """
+        self.n_orb = int(self.N_qubits/2)
+        self.n_spin_orb = self.N_qubits
+        print(" Form singlet GSD operators")
+
+        self.fermi = []
+        v_pool = []
+        real_vpool = []
+        for p in range(0,self.n_orb):
+            pa = 2*p
+            pb = 2*p+1
+
+            for q in range(p,self.n_orb):
+                qa = 2*q
+                qb = 2*q+1
+
+                termA =  of.ops.FermionOperator(((pa,1),(qa,0)))
+                termA -= of.hermitian_conjugated(termA)
+                termA = of.normal_ordered(termA)
+                if termA.many_body_order() > 0:
+                    self.fermi.append(termA)
+                    v_pool.append(f"{pa} -> {qa}")
+
+                termA = of.ops.FermionOperator(((pb,1),(qb,0)))
+                termA -= of.hermitian_conjugated(termA)
+                termA = of.normal_ordered(termA)
+                if termA.many_body_order() > 0:
+                    self.fermi.append(termA)
+                    v_pool.append(f"{pb} -> {qb}")
+
+        pq = -1
+        for p in range(0,self.n_orb):
+            pa = 2*p
+            pb = 2*p+1
+
+            for q in range(p,self.n_orb):
+                qa = 2*q
+                qb = 2*q+1
+
+                pq += 1
+
+                rs = -1
+                for r in range(0,self.n_orb):
+                    ra = 2*r
+                    rb = 2*r+1
+
+                    for s in range(r,self.n_orb):
+                        sa = 2*s
+                        sb = 2*s+1
+
+                        rs += 1
+
+                        if(pq > rs):
+                            continue
+
+                        termA =  of.ops.FermionOperator(((ra,1),(pa,0),(sa,1),(qa,0)))
+                        termA -= of.hermitian_conjugated(termA)
+                        termA = of.normal_ordered(termA)
+                        if termA.many_body_order() > 0:
+                            self.fermi.append(termA)
+                            v_pool.append(f"{pa} {qa} -> {ra} {sa}")
+
+                        termA = of.ops.FermionOperator(((rb,1),(pb,0),(sb,1),(qb,0)))
+                        termA -= of.hermitian_conjugated(termA)
+                        termA = of.normal_ordered(termA)
+                        if termA.many_body_order() > 0:
+                            self.fermi.append(termA)
+                            v_pool.append(f"{pb} {qb} -> {rb} {sb}")
+
+                        termA = of.ops.FermionOperator(((ra,1),(pa,0),(sb,1),(qb,0)))
+                        termA -= of.hermitian_conjugated(termA)
+                        termA = of.normal_ordered(termA)
+                        if termA.many_body_order() > 0:
+                            self.fermi.append(termA)
+                            v_pool.append(f"{pa} {qb} -> {ra} {sb}")
+
+                        termA = of.ops.FermionOperator(((rb,1),(pb,0),(sa,1),(qa,0)))
+                        termA -= of.hermitian_conjugated(termA)
+                        termA = of.normal_ordered(termA)
+                        if termA.many_body_order() > 0:
+                            self.fermi.append(termA)
+                            v_pool.append(f"{pb} {qa} -> {rb} {sa}")
+
+                        termA = of.ops.FermionOperator(((ra,1),(pb,0),(sb,1),(qa,0)))
+                        termA -= of.hermitian_conjugated(termA)
+                        termA = of.normal_ordered(termA)
+                        if termA.many_body_order() > 0:
+                            self.fermi.append(termA)
+                            v_pool.append(f"{pb} {qa} -> {ra} {sb}")
+
+                        termA = of.ops.FermionOperator(((rb,1),(pa,0),(sa,1),(qb,0)))
+                        termA -= of.hermitian_conjugated(termA)
+                        termA = of.normal_ordered(termA)
+                        if termA.many_body_order() > 0:
+                            self.fermi.append(termA)
+                            v_pool.append(f"{pa} {qb} -> {rb} {sa}")
+
+        self.n_ops = len(self.fermi)
+
+        n = self.n_spin_orb
+
+        pool_vec = np.zeros((4 ** n,))
+
+        self.fermi_ops = []
+        opqubits=[]
+        real_v_pool = []
+        for j in range(0, len(self.fermi)):
+            i = self.fermi[j]
+            pauli = of.transforms.jordan_wigner(i)
+            op = of.ops.QubitOperator()
+            for line in pauli.terms:
+                opqlist=[]
+                coeff = pauli.terms[line]
+                line = str(line)
+                # print(line)
+                Bin = np.zeros((2 * n,), dtype=int)
+                X_pat_1 = re.compile("(\d{,2}), 'X'")
+                X_1 = X_pat_1.findall(line)
+                if X_1:
+                    for i in X_1:
+                        k = int(i)
+                        Bin[n + k] = 1
+                Y_pat_1 = re.compile("(\d{,2}), 'Y'")
+                Y_1 = Y_pat_1.findall(line)
+                if Y_1:
+                    for i in Y_1:
+                        k = int(i)
+                        Bin[n + k] = 1
+                        Bin[k] = 1
+                Z_pat_1 = re.compile("(\d{,2}), 'Z'")
+                Z_1 = Z_pat_1.findall(line)
+                if Z_1:
+                    for i in Z_1:
+                        k = int(i)
+                        Bin[k] = 1
+                # print(Bin)
+                index = int("".join(str(x) for x in Bin), 2)
+                # print("index", index)
+
+                pool_vec[index] = int(1)
+
+                pauli_string = ''
+                flip = []
+                qstring=''
+                for k in range(n):
+                    if Bin[k] == 0:
+                        if Bin[k + n] == 1:
+                            pauli_string += 'X%d ' % k
+                            flip.append(k)
+                            opqlist.append(k)
+                    if Bin[k] == 1:
+                        if Bin[k + n] == 1:
+                            pauli_string += 'Y%d ' % k
+                            flip.append(k)
+                            opqlist.append(k)
+                flip.sort()
+                opqlist.sort()
+                opqlist = [str(x) for x in opqlist]
+                qstring=' '.join(opqlist)
+                z_string = list(range(flip[0] + 1,flip[1]))
+                if len(flip) == 4:
+                    for i in range(flip[2] + 1, flip[3]):
+                        z_string.append(i)
+                for i in z_string:
+                    Bin[i] += 1
+                    Bin[i] = Bin[i] % 2
+                A = of.ops.QubitOperator(pauli_string, coeff)
+                op += A 
+
+            if qstring not in opqubits:
+                opqubits.append(qstring)
+                self.fermi_ops.append(op)
+                real_vpool.append(v_pool[j])
+
+        self.n_ops = len(self.fermi_ops)
+        print(" Number of qubit excitation operators: ", self.n_ops)
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in self.fermi_ops]
+        return jw_pool, real_vpool
+
     def vccsd_pool(self, spin_adapt = False):
         N_qubits = self.N_qubits
         N_e = self.N_e
