@@ -570,6 +570,63 @@ class Xiphos:
         grad = np.array(grad)
         return grad.real
        
+    def gd_adiabatic_vqe(self, params, ansatz, F = None, steps = 100):
+        H0 = F + ((self.ref.T@self.H_vqe@self.ref)[0,0] - (self.ref.T@F@self.ref)[0,0])*scipy.sparse.identity(F.shape[0])
+
+
+        energy = self.gd_t_ucc_E
+        jac = self.gd_t_ucc_grad
+
+        x0 = params
+        E0 = energy(params, ansatz)
+        corr = 0
+        params = 0 * np.array(params)
+        print("Adiabatic Optimization...")
+        for i in range(0, steps):
+            corr += 1/steps
+            self.H_vqe = H0 + corr*(self.H - H0)
+
+            res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz), options = {'gtol': 1e-8})
+
+            params = np.array(res.x)
+            state_1 = self.gd_t_ucc_state(params, ansatz)
+            energy_1 = (state_1.T@self.H@state_1)[0,0]
+            print(f"Step {i+1} : {energy_1}")
+
+        EF = res.fun
+
+        gradient = res.jac
+        gnorm = np.linalg.norm(gradient)
+        state = self.gd_t_ucc_state(res.x, ansatz)
+        fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
+        string = "\nSolution Analysis:\n\n"
+        string += f"Parameters: {len(ansatz)}\n"
+        string += f"Initial Energy: {E0:20.16f}\n"
+        string += f"Final Energy: {EF:20.16f}\n"
+        string += f"GNorm: {gnorm:20.16f}\n"
+        string += f"Fidelity: {fid:20.16f}\n"
+        string += f"Success: {res.success}\n"
+
+        string += f"Initial Parameters:\n"
+        for x in x0:
+            string += f"{x},"
+        string += "\n"
+        string += f"Solution Parameters:\n"
+        for x in res.x:
+            string += f"{x},"
+        string += "\n"
+
+        string += f"Operator/ Expectation Value/ Error:\n"
+        for key in self.sym_ops.keys():
+            val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+            err = val - self.ed_syms[0][key]
+            string += f"{key:<6}:      {val:20.16f}      {err:20.16f}\n"
+        string += '\n\n'
+        print(string)
+
+
+        return np.array(res.x)
+
     def gd_detailed_vqe(self, params, ansatz, seed):
         energy = self.gd_t_ucc_E
         jac = self.gd_t_ucc_grad
@@ -611,7 +668,7 @@ class Xiphos:
         string += '\n\n'
         return [res, string]
 
-    def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1):
+    def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1, F = None):
         #Now does -pi,pi instead of 0,2pi interval
         os.system('export OPENBLAS_NUM_THREADS=1')
         os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -638,7 +695,7 @@ class Xiphos:
             print(L[i][1], flush = True)
         return params
 
-    def gd_adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0):
+    def gd_pretend_adapt(self, params, ansatz, ref, order = [], gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0, F = None, steps = 100):
         """Run one or more ADAPT calculations with diagonalized generators
 
         Parameters
@@ -660,7 +717,11 @@ class Xiphos:
             Number of threads to use for multiple BFGS threads
         seed : int
             Seed for random number generator
- 
+        F : scipy sparse matrix
+            Fock operator for adiabatic optimizer
+        steps : int
+            Number of adiabatic steps to take            
+
         Returns
         -------
         error : float
@@ -671,7 +732,146 @@ class Xiphos:
         self.unitaries = [None for i in self.v_pool]
 
         np.random.seed(seed = seed)
+        for j in ansatz:
+            if self.diags[j] is None:
+                print("Diagonalizing operator...")
+                start = time.time()
+                G = self.pool[j].todense()
+                H = -1j * G
+                w, v = np.linalg.eigh(H)
+                self.diags[j] = 1j * w
+                v[abs(v) < 1e-16] = 0
+                v = scipy.sparse.csc_matrix(v)
+                self.unitaries[i] = v
+                stop = time.time()
+                print(f"Operator diagonalized in {stop-start} s")
+        state = self.gd_t_ucc_state(params, ansatz)
+        iteration = len(ansatz)
+        print(f"\nADAPT Iteration {iteration}")
+        print("Performing ADAPT:")
+        E = (state.T@(self.H@state))[0,0] 
+        Done = False
+        for i in order:
+            E = (state.T@(self.H@state))[0,0].real 
+            error = E - self.ed_energies[0]
+            fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
+            print(f"\nBest Initialization Information:")
+            print(f"Operator/ Expectation Value/ Error")
 
+            for key in self.sym_ops.keys():
+                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+                
+            print(f"Next operator to be added: {self.v_pool[i]}")
+            print(f"Operator multiplicity {1+ansatz.count(i)}.")                
+
+            print(f"Fidelity to ED:            {fid:20.16f}")
+            print(f"Current ansatz:")
+            for j in range(0, len(ansatz)):
+                print(f"{j} {params[j]} {self.v_pool[ansatz[j]]}") 
+            print("|0>")  
+
+            iteration += 1
+            print(f"\nADAPT Iteration {iteration}")
+
+            ansatz = [i] + ansatz
+            params = np.array([0] + list(params))
+
+            if self.diags[i] is None:
+                print("Diagonalizing operator...")
+                start = time.time()
+                G = self.pool[i].todense()
+                H = -1j * G
+                w, v = np.linalg.eigh(H)
+                self.diags[i] = 1j * w
+                v[abs(v) < 1e-16] = 0
+                v = scipy.sparse.csc_matrix(v)
+                self.unitaries[i] = v
+                stop = time.time()
+                print(f"Operator diagonalized in {stop-start} s")
+
+            print(f"Recycled ansatz:")
+
+            for i in range(0, len(ansatz)):
+                print(f"{i} {params[i]} {self.v_pool[ansatz[i]]}") 
+            print("|0>")  
+
+            H_vqe = copy.copy(self.H_vqe)
+            pool = copy.copy(self.pool)
+            ref = copy.copy(self.ref)
+
+            if F is None:
+                params = self.gd_multi_vqe(params, ansatz, guesses = guesses, hf = hf, threads = threads)
+            else:
+                params = self.gd_adiabatic_vqe(params, ansatz, F = F, steps = steps)  
+            state = self.gd_t_ucc_state(params, ansatz)
+            np.save(f"{self.system}/params", params)
+            np.save(f"{self.system}/ops", ansatz)
+
+            
+        print(f"\nConverged ADAPT energy:    {E:20.16f}")            
+        print(f"\nConverged ADAPT error:     {error:20.16f}")            
+        print(f"\nConverged ADAPT gnorm:     {gnorm:20.16f}")            
+        print(f"\nConverged ADAPT fidelity:  {fid:20.16f}")            
+        print("\n---------------------------\n")
+        print("\"Adapt.\" - Bear Grylls\n")
+        print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
+        repo = git.Repo(search_parent_directories=True)
+        sha = repo.head.object.hexsha
+        print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
+        return error
+
+    def gd_adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0, F = None, steps = 100):
+        """Run one or more ADAPT calculations with diagonalized generators
+
+        Parameters
+        ----------
+        params, ansatz : list
+            Lists of parameters and operator indices to use as the initial ansatz and parameters
+            Only recommend using non-empty lists for N = 1
+        ref : scipy sparse matrix
+            Reference matrix
+        gtol, Etol : float
+            gradient norm and energy thresholds 
+        max_depth : int
+            Max number of operators to use
+        guesses : int
+            Number of random guesses to try at each step
+        hf : bool
+            Whether to try the HF (all zeros) initialization at each step
+        threads : int
+            Number of threads to use for multiple BFGS threads
+        seed : int
+            Seed for random number generator
+        F : scipy sparse matrix
+            Fock operator for adiabatic optimizer
+        steps : int
+            Number of adiabatic steps to take            
+
+        Returns
+        -------
+        error : float
+             The error from exact diagonalization
+        """
+
+        self.diags = [None for i in self.v_pool]
+        self.unitaries = [None for i in self.v_pool]
+
+        np.random.seed(seed = seed)
+        for i in ansatz:
+            if self.diags[i] is None:
+                print("Diagonalizing operator...")
+                start = time.time()
+                G = self.pool[i].todense()
+                H = -1j * G
+                w, v = np.linalg.eigh(H)
+                self.diags[i] = 1j * w
+                v[abs(v) < 1e-16] = 0
+                v = scipy.sparse.csc_matrix(v)
+                self.unitaries[idx[i]] = v
+                stop = time.time()
+                print(f"Operator diagonalized in {stop-start} s")
         state = self.gd_t_ucc_state(params, ansatz)
         iteration = len(ansatz)
         print(f"\nADAPT Iteration {iteration}")
@@ -745,8 +945,10 @@ class Xiphos:
             pool = copy.copy(self.pool)
             ref = copy.copy(self.ref)
 
-
-            params = self.gd_multi_vqe(params, ansatz, guesses = guesses, hf = hf, threads = threads)  
+            if F is None:
+                params = self.gd_multi_vqe(params, ansatz, guesses = guesses, hf = hf, threads = threads)
+            else:
+                params = self.gd_adiabatic_vqe(params, ansatz, F = F, steps = steps)  
             state = self.gd_t_ucc_state(params, ansatz)
             np.save(f"{self.system}/params", params)
             np.save(f"{self.system}/ops", ansatz)
@@ -1017,7 +1219,7 @@ def wfn_grid(op, pool, ref, xiphos):
 
 
 
-def multi_vqe(params, ansatz, H_vqe, pool, ref, xiphos, energy = None, guesses = 0, hf = True, threads = 1):
+def multi_vqe(params, ansatz, H_vqe, pool, ref, xiphos, energy = None, guesses = 0, hf = True, threads = 1, F = None):
     os.system('export OPENBLAS_NUM_THREADS=1')
     os.environ['OPENBLAS_NUM_THREADS'] = '1'
     if energy is None or energy == t_ucc_E:

@@ -595,7 +595,6 @@ class system_data:
         """
         self.n_orb = int(self.N_qubits/2)
         self.n_spin_orb = self.N_qubits
-        print(" Form singlet GSD operators")
 
         self.fermi = []
         v_pool = []

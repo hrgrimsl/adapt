@@ -155,6 +155,8 @@ def get_integrals(geometry, basis, reference, charge = 0, spin = 0, read = False
         print(casci[0])
     return E_nuc, H_core, g, D, C, hf_energy
 
+
+
 def get_F(geometry, basis, reference, charge = 0, spin = 0, feed_C = False):
     mol = gto.M(atom = geometry, basis = basis, spin = spin, charge = charge)
     mol.symmetry = False
