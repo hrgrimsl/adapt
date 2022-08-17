@@ -869,7 +869,7 @@ class Xiphos:
                 self.diags[i] = 1j * w
                 v[abs(v) < 1e-16] = 0
                 v = scipy.sparse.csc_matrix(v)
-                self.unitaries[idx[i]] = v
+                self.unitaries[i] = v
                 stop = time.time()
                 print(f"Operator diagonalized in {stop-start} s")
         state = self.gd_t_ucc_state(params, ansatz)
