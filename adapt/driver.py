@@ -668,7 +668,7 @@ class Xiphos:
         string += '\n\n'
         return [res, string]
 
-    def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1, F = None):
+    def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1, F = None, follow = 0):
         #Now does -pi,pi instead of 0,2pi interval
         os.system('export OPENBLAS_NUM_THREADS=1')
         os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -689,7 +689,7 @@ class Xiphos:
         with Pool(threads) as p:
             L = p.starmap(self.gd_detailed_vqe, iterable = iterable)
         print(f"Time elapsed over whole set of optimizations: {time.time() - start}")
-        params = L[0][0].x
+        params = L[follow][0].x
         idx = np.argsort([L[i][0].fun for i in range(0, len(L))])
         for i in idx:
             print(L[i][1], flush = True)
@@ -822,7 +822,7 @@ class Xiphos:
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
         return error
 
-    def gd_adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0, F = None, steps = 100):
+    def gd_adapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0, F = None, steps = 100, follow = 0):
         """Run one or more ADAPT calculations with diagonalized generators
 
         Parameters
@@ -848,7 +848,8 @@ class Xiphos:
             Fock operator for adiabatic optimizer
         steps : int
             Number of adiabatic steps to take            
-
+        follow : int
+            Which solution to follow.  (I.e. 0 uses the recycled guess to pick the next operator.  1 uses HF if HF is True, etc.)
         Returns
         -------
         error : float
@@ -946,9 +947,9 @@ class Xiphos:
             ref = copy.copy(self.ref)
 
             if F is None:
-                params = self.gd_multi_vqe(params, ansatz, guesses = guesses, hf = hf, threads = threads)
+                params = self.gd_multi_vqe(params, ansatz, guesses = guesses, hf = hf, threads = threads, follow = follow)
             else:
-                params = self.gd_adiabatic_vqe(params, ansatz, F = F, steps = steps)  
+                params = self.gd_adiabatic_vqe(params, ansatz, F = F, steps = steps, follow = follow)  
             state = self.gd_t_ucc_state(params, ansatz)
             np.save(f"{self.system}/params", params)
             np.save(f"{self.system}/ops", ansatz)
