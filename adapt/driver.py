@@ -668,7 +668,11 @@ class Xiphos:
         string += '\n\n'
         return [res, string]
 
-    def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1, F = None, follow = 0):
+    def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1, F = None, follow = 0, diags = None, unitaries = None):
+        if diags is not None:
+            self.diags = diags
+            self.unitaries = unitaries
+
         #Now does -pi,pi instead of 0,2pi interval
         os.system('export OPENBLAS_NUM_THREADS=1')
         os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -953,6 +957,8 @@ class Xiphos:
             state = self.gd_t_ucc_state(params, ansatz)
             np.save(f"{self.system}/params", params)
             np.save(f"{self.system}/ops", ansatz)
+            np.save(f"{self.system}/diags", self.diags, allow_pickle = True)
+            np.save(f"{self.system}/unitaries", self.unitaries, allow_pickle = True)
 
             
         print(f"\nConverged ADAPT energy:    {E:20.16f}")            
