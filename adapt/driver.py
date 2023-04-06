@@ -18,7 +18,7 @@ Eh = 627.5094740631
 
 class Xiphos:
     """Class representing an individual XIPHOS calculation"""
-    def __init__(self, H, ref, system, pool, v_pool, H_adapt = None, H_vqe = None, sym_ops = None):
+    def __init__(self, H, ref, system, pool, v_pool, weights = None, H_adapt = None, H_vqe = None, sym_ops = None, refs = None):
 
         """Initialize a XIPHOS Solver Object.
         Parameters
@@ -41,6 +41,7 @@ class Xiphos:
           
         self.H = H
         self.ref = ref
+        self.refs = refs
         self.system = system
         self.pool = pool
         self.v_pool = v_pool
@@ -48,6 +49,8 @@ class Xiphos:
         self.e_dict = {}
         self.grad_dict = {}
         self.state_dict = {}
+        self.weights = weights
+
  
         if H_adapt is None:
             self.H_adapt = self.H
@@ -82,35 +85,51 @@ class Xiphos:
 
          
         #We do an exact diagonalization to check for degeneracies/symmetry issues
-        print("\nReference information:")
-        self.ref_syms = {}
-        for key in self.sym_ops.keys():
-            val = (ref.T@(self.sym_ops[key]@ref))[0,0]
-            print(f"{key: >6}: {val:20.16f}")
-            self.ref_syms[key] = val
-        self.hf = self.ref_syms['H']        
-        print("\nED information:") 
-        #w, v = scipy.sparse.linalg.eigsh(H, k = min(H.shape[0]-1,10), which = "SA")
-        w, v = np.linalg.eigh(H.todense())
-        k = min(H.shape[0]-1,10)
-        self.ed_energies = w[:k]
-        self.ed_wfns = v[:,:k]
-
-        self.ed_syms = []
-        for i in range(0, len(self.ed_energies)):
-            print(f"ED Solution {i+1}:")
-            ed_dict = {}
+        if refs is None:
+            print("\nReference information:")
+            self.ref_syms = {}
             for key in self.sym_ops.keys():
-                val = (v[:,i].T@(self.sym_ops[key]@v[:,i]))[0,0].real
+                val = (ref.T@(self.sym_ops[key]@ref))[0,0]
                 print(f"{key: >6}: {val:20.16f}")
-                ed_dict[key] = copy.copy(val)
-            self.ed_syms.append(copy.copy(ed_dict))
+                self.ref_syms[key] = val
+            self.hf = self.ref_syms['H']        
+            print("\nED information:") 
+            k = min(H.shape[0]-1,10)
+            hdim = H.shape[0] 
+            w, v = scipy.sparse.linalg.eigsh(H, k = min(H.shape[0]-1,10), which = "SA")
+            #print(v[:,:k][:,0])
+            #w, v = np.linalg.eigh(H.todense())
+            #print(v[:,:k][:,0])
+            #exit()
 
-        for key in self.sym_ops.keys():
-            if key != "H" and abs(self.ed_syms[0][key] - self.ref_syms[key]) > 1e-8:
-                print(f"\nWARNING: <{key}> symmetry of reference inconsistent with ED solution.")
-        if abs(self.ed_syms[0]["H"] - self.ed_syms[1]["H"]) < (1/Eh):
-            print(f"\nWARNING:  Lowest two ED solutions may be quasi-degenerate.")
+            #idx = np.argsort(w)
+            #w = w[idx]
+            #v = v[:,idx]
+            #self.ed_energies = w
+            #self.ed_wfns = [scipy.sparse.csc_matrix(v[:,i]) for i in range(0, k)]
+            #for i in range(0, k):
+            #    self.ed_wfns[i] = self.ed_wfns[i].reshape((1,hdim))
+
+            self.ed_energies = w[:k]
+            self.ed_wfns = v[:,:k]
+
+            #exit()
+
+            self.ed_syms = []
+            for i in range(0, len(self.ed_energies)):
+                print(f"ED Solution {i+1}:")
+                ed_dict = {}
+                for key in self.sym_ops.keys():
+                    val = np.asscalar(v[:,i].T@(self.sym_ops[key]@v[:,i])).real
+                    print(f"{key: >6}: {val:20.16f}")
+                    ed_dict[key] = copy.copy(val)
+                self.ed_syms.append(copy.copy(ed_dict))
+
+            for key in self.sym_ops.keys():
+                if key != "H" and abs(self.ed_syms[0][key] - self.ref_syms[key]) > 1e-8:
+                    print(f"\nWARNING: <{key}> symmetry of reference inconsistent with ED solution.")
+            if abs(self.ed_syms[0]["H"] - self.ed_syms[1]["H"]) < (1/Eh):
+                print(f"\nWARNING:  Lowest two ED solutions may be quasi-degenerate.")
 
     def rebuild_ansatz(self, A):
         params = []
@@ -282,7 +301,7 @@ class Xiphos:
                  
             E = (state.T@(self.H@state))[0,0].real 
             error = E - self.ed_energies[0]
-            fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
+
             print(f"\nBest Initialization Information:")
             print(f"Operator/ Expectation Value/ Error")
 
@@ -404,6 +423,85 @@ class Xiphos:
         sha = repo.head.object.hexsha
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
+    def sa_adapt(self, params, ansatz, refs, weights, gtol = None, Etol = None, max_depth = None):
+        ansatz = copy.copy(ansatz)
+        params = np.array(params)
+        states = []
+        
+        iteration = len(ansatz)
+        SA_E = 0
+        print("Performing ADAPT:")
+        print(f"\nADAPT Iteration {iteration}")
+        for i in range(0, len(self.refs)):
+            state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
+            E = np.ndarray.item(np.array(state.T@(self.H@state)))
+            SA_E += E*weights[i]
+            print(f"State {i} Energy: {E}")
+        print(f"\nState-Averaged Energy: {SA_E}")
+        Done = False
+        SA_grad = np.zeros(len(self.pool))
+        while Done == False:
+            for i in range(0, len(self.refs)):
+                grad = np.array([2 * np.ndarray.item((state.T@self.H_adapt@(op@state)).todense()) for op in self.pool])
+                SA_grad += weights[i]*grad
+            gnorm = np.linalg.norm(SA_grad)
+            idx = np.argsort(abs(SA_grad))
+            SA_E = 0
+            for i in range(0, len(self.refs)):
+                state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
+                E = np.ndarray.item(np.array(state.T@(self.H@state)))
+                SA_E += E*weights[i]
+                print(f"State {i} Energy: {E}")
+    
+            print(f"Next operator to be added: {self.v_pool[idx[-1]]}")
+            print(f"Gradient norm:             {gnorm:20.16f}")
+            print(f"Current ansatz:")
+            for i in range(0, len(ansatz)):
+                print(f"{i} {params[i]} {self.v_pool[ansatz[i]]}") 
+            print("|0>")  
+            if gtol is not None and gnorm < gtol:
+                Done = True
+                print(f"\nADAPT finished.  (Gradient norm acceptable.)")
+                continue
+            if max_depth is not None and len(ansatz)+1 > max_depth:
+                Done = True
+                print(f"\nADAPT finished.  (Max depth reached.)")
+                continue
+            if Etol is not None and error < Etol:
+                Done = True
+                print(f"\nADAPT finished.  (Error acceptable.)")
+                continue
+            if len(ansatz) > 0 and idx[-1] == ansatz[0]:
+                Done = True
+                print(f"\nADAPT stuck. Aborting")
+                continue
+            iteration += n
+            print(f"\nADAPT Iteration {iteration}")
+            params = np.array([0] + list(params))              
+            ansatz = [idx[-1]] + ansatz
+            H_vqe = copy.copy(self.H_vqe)
+            pool = copy.copy(self.pool)
+            refs = copy.copy(self.ref)
+            weights = copy.copy(self.weights)
+            params = sa_vqe(bre_params, bre_ansatz, H_vqe, pool, ref, self, guesses = guesses, hf = hf, threads = threads)  
+            np.save(f"{self.system}/params", params)
+            np.save(f"{self.system}/ops", ansatz)
+            
+
+        print(f"\nConverged ADAPT energies:")          
+        Es = []
+        for i in range(0, len(self.refs)):
+            state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
+            E = np.ndarray.item(np.array(state.T@(self.H@state)))
+            print(f"State {i} Energy: {E}")
+            Es.append(E)
+        print(f"\nConverged ADAPT gnorm:     {gnorm:20.16f}")            
+        print("\n---------------------------\n")
+        print("\"Adapt.\" - Bear Grylls\n")
+        print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
+        return Es
+
+
     def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1, seed = 0, criteria = 'grad'):
         """Run one or more ADAPT^N Calculations without generator diagonalization
 
@@ -455,7 +553,11 @@ class Xiphos:
                 random.shuffle(idx)    
             E = (state.T@(self.H@state))[0,0].real 
             error = E - self.ed_energies[0]
-            fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
+
+            #fid = ((self.ed_wfns[:,0].T)@state)[0,0].real**2
+            fids = [np.asscalar((self.ed_wfns[:,i].T)@state).real**2 for i in range(0, len(self.ed_energies))]
+            fid = fids[0]
+            
             print(f"\nBest Initialization Information:")
             print(f"Operator/ Expectation Value/ Error")
 
@@ -468,7 +570,11 @@ class Xiphos:
             print(f"Operator multiplicity {1+ansatz.count(idx[-1])}.")                
             print(f"Associated gradient:       {gradient[idx[-1]]:20.16f}")
             print(f"Gradient norm:             {gnorm:20.16f}")
-            print(f"Fidelity to ED:            {fid:20.16f}")
+            print(f"Fidelity to GS:            {fid:20.16f}")
+            print(f"Fidelities:")
+            for i in range(0, len(fids)):
+                if abs(fids[i]) > 1e-8:
+                    print(f"{i}: {fids[i]}")
             print(f"Current ansatz:")
             for i in range(0, len(bre_ansatz)):
                 print(f"{i} {bre_params[i]} {self.v_pool[bre_ansatz[i]]}") 
@@ -484,6 +590,10 @@ class Xiphos:
             if Etol is not None and error < Etol:
                 Done = True
                 print(f"\nADAPT finished.  (Error acceptable.)")
+                continue
+            if len(ansatz) > 0 and idx[-1] == ansatz[0]:
+                Done = True
+                print(f"\nADAPT stuck. Aborting")
                 continue
             iteration += n
             print(f"\nADAPT Iteration {iteration}")
@@ -516,17 +626,23 @@ class Xiphos:
         self.e_dict = {}
         self.grad_dict = {}
         self.state_dict = {}
+
             
+        print(f"\nFCI energy:                {self.ed_energies[0]}")
         print(f"\nConverged ADAPT energy:    {E:20.16f}")            
         print(f"\nConverged ADAPT error:     {error:20.16f}")            
         print(f"\nConverged ADAPT gnorm:     {gnorm:20.16f}")            
         print(f"\nConverged ADAPT fidelity:  {fid:20.16f}")            
+        print(f"Fidelities:")
+        for i in range(0, len(fids)):
+            if abs(fids[i]) > 1e-8:
+                 print(f"{i}: {fids[i]}")
         print("\n---------------------------\n")
         print("\"Adapt.\" - Bear Grylls\n")
         print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
-        repo = git.Repo(search_parent_directories=True)
-        sha = repo.head.object.hexsha
-        print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
+        #repo = git.Repo(search_parent_directories=True)
+        #sha = repo.head.object.hexsha
+        #print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
         return error
 
     def gd_t_ucc_state(self, params, ansatz):
@@ -1345,12 +1461,25 @@ def vqe(params, ansatz, H_vqe, pool, ref, strategy = "bfgs", energy = None):
         hess = t_ucc_hess
     if strategy == "newton-cg":
         res = scipy.optimize.minimize(energy, params, jac = jac, hess = hess, method = "newton-cg", args = (ansatz, H_vqe, pool, ref), options = {'xtol': 1e-16})
+
     if strategy == "bfgs":
         res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, H_vqe, pool, ref), options = {'gtol': 1e-8})
     return res
 
+def sa_ucc_energy(params, ansatz, H, pool, refs, weights):
+    E = 0
+    for i in range(0, len(refs)):
+        E += weights[i]*t_ucc_E(params, ansatz, H, pool, refs[i])
+    return E
 
-    
+def sa_ucc_grad(params, ansatz, H, pool, refs, weights):
+    grad = 0
+    for i in range(0, len(refs)):
+        grad += weights[i]*t_ucc_grad(params, ansatz, H, pool, refs[i])
+    return grad
+
+def sa_vqe(params, ansatz, xiphos):
+    res = scipy.optimize.minimize(sa_ucc_energy, params, jac = sa_ucc_grad, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.refs, xiphos.weights), options = {"gtol": 1e-16, "disp": True})
 
 def detailed_vqe(params, ansatz, seed, xiphos, jac_svd = False, hess_diag = False):
     energy = t_ucc_E
@@ -1358,14 +1487,15 @@ def detailed_vqe(params, ansatz, seed, xiphos, jac_svd = False, hess_diag = Fals
     hess = t_ucc_hess
     x0 = params
     E0 = energy(params, ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref)
-    res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref), options = {'gtol': 1e-8})
+
+    res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref), options = {'gtol': 1e-16, 'disp': True})
     #res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref), options = {'gtol': 1e-16})
     EF = res.fun
     #gradient = t_ucc_grad(res.x, ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref)
     gradient = res.jac
     gnorm = np.linalg.norm(gradient)
     state = t_ucc_state(res.x, ansatz, xiphos.pool, xiphos.ref)
-    fid = ((xiphos.ed_wfns[:,0].T)@state)[0,0].real**2
+    fid = np.asscalar((xiphos.ed_wfns[:,0].T)@state).real**2
     string = "\nSolution Analysis:\n\n"
     string += f"Parameters: {len(ansatz)}\n"
     string += f"Initialization: {seed}\n"

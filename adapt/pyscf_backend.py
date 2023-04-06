@@ -145,7 +145,7 @@ def get_integrals(geometry, basis, reference, charge = 0, spin = 0, read = False
     g -= contract('pqrs->pqsr', g)
     g *= -.25
     if active is None:
-        cisolver = fci.FCI(mol, mf.mo_coeff)
+        cisolver = fci.FCI(mf)
         print("PYSCF FCI:")
         print(cisolver.kernel(verbose=logger.DEBUG)[0])
     else:
