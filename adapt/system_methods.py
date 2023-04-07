@@ -918,9 +918,8 @@ class system_data:
                                 v_pool.append(f"{p}{q}->{r}{s} (Type 2)")
     
 
-        print("UCCGSD Pool:")
-        for v in v_pool: 
-            print(v)
+
+
         #Adding normalization
         for i in range(0, len(pool)):
              op = copy.copy(pool[i])

@@ -50,7 +50,6 @@ class Xiphos:
         self.grad_dict = {}
         self.state_dict = {}
         self.weights = weights
-
  
         if H_adapt is None:
             self.H_adapt = self.H
@@ -130,7 +129,21 @@ class Xiphos:
                     print(f"\nWARNING: <{key}> symmetry of reference inconsistent with ED solution.")
             if abs(self.ed_syms[0]["H"] - self.ed_syms[1]["H"]) < (1/Eh):
                 print(f"\nWARNING:  Lowest two ED solutions may be quasi-degenerate.")
-
+        else:
+            k = min(H.shape[0]-1,40)
+            hdim = H.shape[0] 
+            w, v = scipy.sparse.linalg.eigsh(H, k = min(H.shape[0]-1,40), which = "SA")
+            self.ed_energies = w[:k]
+            self.ed_wfns = v[:,:k]
+            self.ed_syms = []
+            for i in range(0, len(self.ed_energies)):
+                print(f"ED Solution {i+1}:")
+                ed_dict = {}
+                for key in self.sym_ops.keys():
+                    val = np.asscalar(v[:,i].T@(self.sym_ops[key]@v[:,i])).real
+                    print(f"{key: >6}: {val:20.16f}")
+                    ed_dict[key] = copy.copy(val)
+                self.ed_syms.append(copy.copy(ed_dict))
     def rebuild_ansatz(self, A):
         params = []
         ansatz = [] 
@@ -427,31 +440,56 @@ class Xiphos:
         ansatz = copy.copy(ansatz)
         params = np.array(params)
         states = []
-        
+
         iteration = len(ansatz)
         SA_E = 0
         print("Performing ADAPT:")
         print(f"\nADAPT Iteration {iteration}")
+
         for i in range(0, len(self.refs)):
             state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
-            E = np.ndarray.item(np.array(state.T@(self.H@state)))
+            E = np.ndarray.item((state.T@(self.H@state)).todense())
             SA_E += E*weights[i]
-            print(f"State {i} Energy: {E}")
+            print(f"Reference {i}:")
+            for key in self.sym_ops.keys():
+                val = np.ndarray.item((state.T@self.sym_ops[key]@state).todense())
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
         print(f"\nState-Averaged Energy: {SA_E}")
         Done = False
-        SA_grad = np.zeros(len(self.pool))
+
         while Done == False:
+            SA_grad = np.zeros(len(self.pool))
             for i in range(0, len(self.refs)):
+                state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
                 grad = np.array([2 * np.ndarray.item((state.T@self.H_adapt@(op@state)).todense()) for op in self.pool])
-                SA_grad += weights[i]*grad
+                SA_grad += weights[i] * grad
             gnorm = np.linalg.norm(SA_grad)
             idx = np.argsort(abs(SA_grad))
             SA_E = 0
+            states = []
             for i in range(0, len(self.refs)):
                 state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
-                E = np.ndarray.item(np.array(state.T@(self.H@state)))
+                states.append(state)
+                E = np.ndarray.item((state.T@(self.H@state)).todense())
                 SA_E += E*weights[i]
                 print(f"State {i} Energy: {E}")
+            H_ss = np.zeros((len(weights),len(weights)))
+            for i in range(0, len(states)):
+                for j in range(i, len(states)):
+                    H_ss[i][j] = H_ss[j][i] = np.ndarray.item((states[i].T@(self.H@states[j])).todense())        
+            w, v = np.linalg.eigh(H_ss)
+            for i in range(0, len(w)):
+                print(f"SA+SS State {i}: {w[i]}")
+                state = np.zeros((self.H.shape[0],1))
+                for j in range(0, len(states)):
+                    state += v[:,i][j] * states[j]
+                state = scipy.sparse.csc_matrix(state)
+                E = np.ndarray.item((state.T@(self.H@state)).todense())
+                for key in self.sym_ops.keys():
+                    val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                    err = val - self.ed_syms[0][key]
+                    print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
     
             print(f"Next operator to be added: {self.v_pool[idx[-1]]}")
             print(f"Gradient norm:             {gnorm:20.16f}")
@@ -475,7 +513,7 @@ class Xiphos:
                 Done = True
                 print(f"\nADAPT stuck. Aborting")
                 continue
-            iteration += n
+            iteration += 1
             print(f"\nADAPT Iteration {iteration}")
             params = np.array([0] + list(params))              
             ansatz = [idx[-1]] + ansatz
@@ -483,18 +521,42 @@ class Xiphos:
             pool = copy.copy(self.pool)
             refs = copy.copy(self.ref)
             weights = copy.copy(self.weights)
-            params = sa_vqe(bre_params, bre_ansatz, H_vqe, pool, ref, self, guesses = guesses, hf = hf, threads = threads)  
+            params = sa_vqe(params, ansatz, self)  
             np.save(f"{self.system}/params", params)
             np.save(f"{self.system}/ops", ansatz)
             
 
         print(f"\nConverged ADAPT energies:")          
         Es = []
+        states = []
         for i in range(0, len(self.refs)):
             state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
-            E = np.ndarray.item(np.array(state.T@(self.H@state)))
-            print(f"State {i} Energy: {E}")
+            states.append(state)
+            E = np.ndarray.item((state.T@(self.H@state)).todense())
+            print(f"SA State {i}: {E}")
+            for key in self.sym_ops.keys():
+                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
             Es.append(E)
+        H_ss = np.zeros((len(weights),len(weights)))
+        for i in range(0, len(states)):
+            for j in range(i, len(states)):
+                H_ss[i][j] = H_ss[j][i] = np.ndarray.item((states[i].T@(self.H@states[j])).todense())        
+        w, v = np.linalg.eigh(H_ss)
+        for i in range(0, len(w)):
+            print(f"SA+SS State {i}: {w[i]}")
+            state = np.zeros((self.H.shape[0],1))
+            for j in range(0, len(states)):
+                state += v[:,i][j] * states[j]
+            state = scipy.sparse.csc_matrix(state)
+            E = np.ndarray.item((state.T@(self.H@state)).todense())
+            for key in self.sym_ops.keys():
+                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+            Es.append(E)
+
         print(f"\nConverged ADAPT gnorm:     {gnorm:20.16f}")            
         print("\n---------------------------\n")
         print("\"Adapt.\" - Bear Grylls\n")
@@ -1480,6 +1542,7 @@ def sa_ucc_grad(params, ansatz, H, pool, refs, weights):
 
 def sa_vqe(params, ansatz, xiphos):
     res = scipy.optimize.minimize(sa_ucc_energy, params, jac = sa_ucc_grad, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.refs, xiphos.weights), options = {"gtol": 1e-16, "disp": True})
+    return res.x
 
 def detailed_vqe(params, ansatz, seed, xiphos, jac_svd = False, hess_diag = False):
     energy = t_ucc_E
@@ -1487,7 +1550,6 @@ def detailed_vqe(params, ansatz, seed, xiphos, jac_svd = False, hess_diag = Fals
     hess = t_ucc_hess
     x0 = params
     E0 = energy(params, ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref)
-
     res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref), options = {'gtol': 1e-16, 'disp': True})
     #res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.ref), options = {'gtol': 1e-16})
     EF = res.fun
