@@ -824,7 +824,7 @@ class system_data:
 
 
 
-    def uccgsd_pool(self, spin_adapt = False):
+    def uccgsd_pool(self, spin_complement = False, spin_adapt = False):
         """UCCGSD-based pool constructor
 
         Parameters
@@ -841,7 +841,7 @@ class system_data:
         N_e = self.N_e
         pool = []
         v_pool = []
-        if spin_adapt == False:
+        if spin_adapt == False and spin_complement == False:
             for i in range(0, N_qubits):
                 for a in range(i+1, N_qubits):
                     if (i+a)%2 == 0:
@@ -853,8 +853,71 @@ class system_data:
                                 pool.append(of.ops.FermionOperator(str(b)+'^ '+str(a)+'^ '+str(i)+' '+str(j), 1))
                                 v_pool.append(f"{i}{j}->{a}{b}")
 
+        if spin_complement == True:
+           M = int(N_qubits/2)
+           N = int(N_e/2)
+           for p in range(0, M):
+               pa = 2*p
+               pb = 2*p+1
 
-        elif spin_adapt == True:
+               for q in range(p, M):
+                    qa = 2*q
+                    qb = 2*q+1
+                    termA =  of.ops.FermionOperator(((pa,1),(qa,0)))
+                    termA += of.ops.FermionOperator(((pb,1),(qb,0)))
+
+                    if of.normal_ordered(termA-of.hermitian_conjugated(termA)).many_body_order() > 0:
+                        pool.append(termA)
+                        v_pool.append(f"{p}->{q}")
+        
+           pairs = []
+           for p in range(0, M):
+               for q in range(p, M):
+                   pairs.append([p,q])
+
+           for pair1 in range(0, len(pairs)):
+               for pair2 in range(pair1, len(pairs)):
+                   p = pairs[pair1][0]
+                   q = pairs[pair1][1]
+                   r = pairs[pair2][0]
+                   s = pairs[pair2][1]
+                   pa = 2 * pairs[pair1][0]
+                   pb = 1 + 2 * pairs[pair1][0]
+                   qa = 2 * pairs[pair1][1]
+                   qb = 1 + 2 * pairs[pair1][1]
+                   ra = 2 * pairs[pair2][0]
+                   rb = 1 + 2 * pairs[pair2][0]
+                   sa = 2 * pairs[pair2][1]
+                   sb = 1 + 2 * pairs[pair2][1]
+                   aa_term = of.ops.FermionOperator(((ra,1),(sa,1),(qa,0),(pa,0))) 
+                   aa_term += of.ops.FermionOperator(((rb,1),(sb,1),(qb,0),(pb,0)))
+                   ab_term = of.ops.FermionOperator(((ra,1),(sb,1),(qb,0),(pa,0))) 
+                   ab_term += of.ops.FermionOperator(((rb,1),(sa,1),(qa,0),(pb,0)))
+                   if p != q:                   
+                       ba_term = of.ops.FermionOperator(((ra,1),(sb,1),(pb,0),(qa,0))) 
+                       ba_term += of.ops.FermionOperator(((rb,1),(sa,1),(pa,0),(qb,0)))
+                   else:
+                       ba_term = of.ops.FermionOperator(((sa,1),(rb,1),(qb,0),(pa,0))) 
+                       ba_term += of.ops.FermionOperator(((sb,1),(ra,1),(qa,0),(pb,0)))
+
+                   if of.normal_ordered(aa_term-of.hermitian_conjugated(aa_term)).many_body_order() > 0:
+                        pool.append(aa_term)
+                        v_pool.append(f"{p}_a {q}_a -> {r}_a {s}_a")
+                   if of.normal_ordered(ab_term-of.hermitian_conjugated(ab_term)).many_body_order() > 0:
+                        pool.append(ab_term)
+                        v_pool.append(f"{p}_a {q}_b -> {r}_a {s}_b")
+                   if of.normal_ordered(ba_term-of.hermitian_conjugated(ba_term)).many_body_order() > 0:
+                        if q != p:
+                            pool.append(ba_term)
+                            v_pool.append(f"{q}_a {p}_b -> {r}_a {s}_b")
+                        elif r != s: 
+                            pool.append(ba_term)
+                            v_pool.append(f"{p}_a {q}_b -> {s}_a {r}_b")
+                            
+                        
+
+
+        if spin_adapt == True:
            M = int(N_qubits/2)
            N = int(N_e/2)
            for p in range(0, M):
@@ -940,7 +1003,8 @@ class system_data:
 
         self.pool = pool
         print("Operators in pool:")
-        print(len(pool)) 
+        print(len(pool))
+
         return jw_pool, v_pool
 
 

@@ -96,18 +96,6 @@ class Xiphos:
             k = min(H.shape[0]-1,10)
             hdim = H.shape[0] 
             w, v = scipy.sparse.linalg.eigsh(H, k = min(H.shape[0]-1,10), which = "SA")
-            #print(v[:,:k][:,0])
-            #w, v = np.linalg.eigh(H.todense())
-            #print(v[:,:k][:,0])
-            #exit()
-
-            #idx = np.argsort(w)
-            #w = w[idx]
-            #v = v[:,idx]
-            #self.ed_energies = w
-            #self.ed_wfns = [scipy.sparse.csc_matrix(v[:,i]) for i in range(0, k)]
-            #for i in range(0, k):
-            #    self.ed_wfns[i] = self.ed_wfns[i].reshape((1,hdim))
 
             self.ed_energies = w[:k]
             self.ed_wfns = v[:,:k]
@@ -144,6 +132,7 @@ class Xiphos:
                     print(f"{key: >6}: {val:20.16f}")
                     ed_dict[key] = copy.copy(val)
                 self.ed_syms.append(copy.copy(ed_dict))
+                print(scipy.sparse.csc_matrix(self.ed_wfns[:,i]))
     def rebuild_ansatz(self, A):
         params = []
         ansatz = [] 
@@ -474,6 +463,7 @@ class Xiphos:
                 E = np.ndarray.item((state.T@(self.H@state)).todense())
                 SA_E += E*weights[i]
                 print(f"State {i} Energy: {E}")
+                print(state)
             H_ss = np.zeros((len(weights),len(weights)))
             for i in range(0, len(states)):
                 for j in range(i, len(states)):
@@ -485,6 +475,7 @@ class Xiphos:
                 for j in range(0, len(states)):
                     state += v[:,i][j] * states[j]
                 state = scipy.sparse.csc_matrix(state)
+
                 E = np.ndarray.item((state.T@(self.H@state)).todense())
                 for key in self.sym_ops.keys():
                     val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
