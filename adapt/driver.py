@@ -450,9 +450,11 @@ class Xiphos:
         while Done == False:
             SA_grad = np.zeros(len(self.pool))
             for i in range(0, len(self.refs)):
+
                 state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
                 grad = np.array([2 * np.ndarray.item((state.T@self.H_adapt@(op@state)).todense()) for op in self.pool])
                 SA_grad += weights[i] * grad
+
             gnorm = np.linalg.norm(SA_grad)
             idx = np.argsort(abs(SA_grad))
             SA_E = 0
@@ -463,17 +465,27 @@ class Xiphos:
                 E = np.ndarray.item((state.T@(self.H@state)).todense())
                 SA_E += E*weights[i]
                 print(f"State {i} Energy: {E}")
-                print(state)
+                for key in self.sym_ops.keys():
+                    val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                    err = val - self.ed_syms[0][key]
+                    print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+
+                
             H_ss = np.zeros((len(weights),len(weights)))
             for i in range(0, len(states)):
                 for j in range(i, len(states)):
                     H_ss[i][j] = H_ss[j][i] = np.ndarray.item((states[i].T@(self.H@states[j])).todense())        
             w, v = np.linalg.eigh(H_ss)
+
             for i in range(0, len(w)):
                 print(f"SA+SS State {i}: {w[i]}")
                 state = np.zeros((self.H.shape[0],1))
                 for j in range(0, len(states)):
                     state += v[:,i][j] * states[j]
+
+                state = scipy.sparse.csc_matrix(state)
+                #I shouldn't have to normalize- what is going on?
+
                 state = scipy.sparse.csc_matrix(state)
 
                 E = np.ndarray.item((state.T@(self.H@state)).todense())
@@ -547,7 +559,9 @@ class Xiphos:
                 err = val - self.ed_syms[0][key]
                 print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
             Es.append(E)
-
+        print(f"FCI Solutions:")
+        for i in range(0, len(self.ed_energies)):
+            print(f"{i} {self.ed_energies[i]}")
         print(f"\nConverged ADAPT gnorm:     {gnorm:20.16f}")            
         print("\n---------------------------\n")
         print("\"Adapt.\" - Bear Grylls\n")
