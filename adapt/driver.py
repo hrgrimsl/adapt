@@ -132,7 +132,7 @@ class Xiphos:
                     print(f"{key: >6}: {val:20.16f}")
                     ed_dict[key] = copy.copy(val)
                 self.ed_syms.append(copy.copy(ed_dict))
-                print(scipy.sparse.csc_matrix(self.ed_wfns[:,i]))
+
     def rebuild_ansatz(self, A):
         params = []
         ansatz = [] 
@@ -425,6 +425,124 @@ class Xiphos:
         sha = repo.head.object.hexsha
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
+    def eom_adapt(self, params, ansatz, ref, eom_space = [], gtol = None, Etol = None, max_depth = None, threads = 1, eom_ops = []):
+        ansatz = copy.copy(ansatz)
+        params = np.array(params)
+        states = []
+
+        iteration = len(ansatz)
+        SA_E = 0
+        print("Performing ADAPT:")
+        print(f"\nADAPT Iteration {iteration}")
+        state = t_ucc_state(params, ansatz, self.pool, ref)
+        E = np.ndarray.item((state.T@(self.H@state)).todense())
+
+        print(f"Reference:")
+        for key in self.sym_ops.keys():
+            val = np.ndarray.item((state.T@self.sym_ops[key]@state).todense())
+            err = val - self.ed_syms[0][key]
+            print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+        print(f"\nState-Averaged Energy: {SA_E}")
+        Done = False
+
+        while Done == False:
+            state = t_ucc_state(params, ansatz, self.pool, ref)
+            grad = np.array([2 * np.ndarray.item((state.T@self.H_adapt@(op@state)).todense()) for op in self.pool])
+            gnorm = np.linalg.norm(grad)
+            idx = np.argsort(abs(grad))
+            E = np.ndarray.item((state.T@(self.H@state)).todense())
+            for key in self.sym_ops.keys():
+                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+
+            print(f"Next operator to be added: {self.v_pool[idx[-1]]}")
+            print(f"Gradient norm:             {gnorm:20.16f}")
+            print(f"Current ansatz:")
+            for i in range(0, len(ansatz)):
+                print(f"{i} {params[i]} {self.v_pool[ansatz[i]]}") 
+            print("|0>")  
+            if gtol is not None and gnorm < gtol:
+                Done = True
+                print(f"\nADAPT finished.  (Gradient norm acceptable.)")
+                continue
+            if max_depth is not None and len(ansatz)+1 > max_depth:
+                Done = True
+                print(f"\nADAPT finished.  (Max depth reached.)")
+                continue
+            if Etol is not None and error < Etol:
+                Done = True
+                print(f"\nADAPT finished.  (Error acceptable.)")
+                continue
+            if len(ansatz) > 0 and idx[-1] == ansatz[0]:
+                Done = True
+                print(f"\nADAPT stuck. Aborting")
+                continue
+            iteration += 1
+            print(f"\nADAPT Iteration {iteration}")
+            params = np.array([0] + list(params))              
+            ansatz = [idx[-1]] + ansatz
+            H_vqe = copy.copy(self.H_vqe)
+            pool = copy.copy(self.pool)            
+            params = multi_vqe(params, ansatz, H_vqe, pool, ref, self, guesses = 0, hf = False, threads = threads)
+            np.save(f"{self.system}/params", params)
+            np.save(f"{self.system}/ops", ansatz)
+            
+
+        print(f"\nConverged ADAPT energies:")          
+        
+
+        state = t_ucc_state(params, ansatz, self.pool, ref)
+        gs = copy.copy(state)
+        E0 = np.ndarray.item((state.T@(self.H@state)).todense())
+        print(f"ADAPT Ground State: {E}")
+        for key in self.sym_ops.keys():
+            val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+            err = val - self.ed_syms[0][key]
+            print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+        Excited_Es = []
+
+        M = np.zeros((len(eom_space),len(eom_space)))
+        for i in range(0, len(eom_space)):
+            state_i = t_ucc_state(params, ansatz, self.pool, eom_space[i])
+            for j in range(i, len(eom_space)):
+                state_j = t_ucc_state(params, ansatz, self.pool, eom_space[j])
+                M[i][j] = M[j][i] = (state_j.T@self.H@state_i).todense()
+            M[i][i] -= E0
+
+        E0k, A = np.linalg.eigh(M)
+        Excited_Es = [E_k + E0 for E_k in E0k]
+        Es = [E0] + Excited_Es
+        s0 = ((state.T)@(self.sym_ops["S^2"]@state))[0,0].real
+        spins = [s0]
+        states = []
+        for k in range(0, len(Excited_Es)):
+            print(f"sc-q-EOM State {k}: {Excited_Es[k]}")
+            #I *think* I'm building these states right...
+            R_k = np.zeros(self.H.shape)
+            R_k = scipy.sparse.csc_matrix(R_k)
+
+
+            for i in range(0, len(eom_ops)):
+                R_k += A[i][k] * eom_ops[i]
+            state = R_k@gs
+            states.append(state)
+            state = scipy.sparse.csc_matrix(state)
+            E = np.ndarray.item((state.T@(self.H@state)).todense())
+            for key in self.sym_ops.keys():
+                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+                if key == "S^2":
+                    spins.append(val)
+            S = np.zeros((len(states),len(states)))
+        for i in range(0, len(states)):
+            for j in range(i, len(states)):
+                S[i][j] = S[j][i] = (states[i].T@states[j]).todense()
+        print(S)
+        exit()
+        return [Es[j] for j in approx_singlets]
+
     def sa_adapt(self, params, ansatz, refs, weights, gtol = None, Etol = None, max_depth = None):
         ansatz = copy.copy(ansatz)
         params = np.array(params)
@@ -484,9 +602,6 @@ class Xiphos:
                     state += v[:,i][j] * states[j]
 
                 state = scipy.sparse.csc_matrix(state)
-                #I shouldn't have to normalize- what is going on?
-
-                state = scipy.sparse.csc_matrix(state)
 
                 E = np.ndarray.item((state.T@(self.H@state)).todense())
                 for key in self.sym_ops.keys():
@@ -522,7 +637,7 @@ class Xiphos:
             ansatz = [idx[-1]] + ansatz
             H_vqe = copy.copy(self.H_vqe)
             pool = copy.copy(self.pool)
-            refs = copy.copy(self.ref)
+            refs = copy.copy(self.refs)
             weights = copy.copy(self.weights)
             params = sa_vqe(params, ansatz, self)  
             np.save(f"{self.system}/params", params)
@@ -547,6 +662,9 @@ class Xiphos:
             for j in range(i, len(states)):
                 H_ss[i][j] = H_ss[j][i] = np.ndarray.item((states[i].T@(self.H@states[j])).todense())        
         w, v = np.linalg.eigh(H_ss)
+        approx_singlets = []
+        Es = []
+        spins = []
         for i in range(0, len(w)):
             print(f"SA+SS State {i}: {w[i]}")
             state = np.zeros((self.H.shape[0],1))
@@ -558,7 +676,14 @@ class Xiphos:
                 val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
                 err = val - self.ed_syms[0][key]
                 print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+                if key == "S^2":
+                    spins.append(val)
+                if key == "S^2" and abs(val) < abs(val - .75):
+
+                    approx_singlets.append(i)
+
             Es.append(E)
+        print(f"Spins of lowest states: {spins[0]} {spins[1]} {spins[2]} {spins[3]} {spins[4]}")
         print(f"FCI Solutions:")
         for i in range(0, len(self.ed_energies)):
             print(f"{i} {self.ed_energies[i]}")
@@ -566,7 +691,7 @@ class Xiphos:
         print("\n---------------------------\n")
         print("\"Adapt.\" - Bear Grylls\n")
         print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
-        return Es
+        return [Es[j] for j in approx_singlets]
 
 
     def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1, seed = 0, criteria = 'grad'):
