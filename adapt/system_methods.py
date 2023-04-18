@@ -822,9 +822,51 @@ class system_data:
 
         return jw_pool, v_pool
 
+    def fixed_uccgsd_pool(self):
+        N = self.N_qubits
+        pool = []
+        v_pool = []
+        pairs = []
+        for p in range(0, N):
+            for q in range(p + 1, N):
+                pairs.append([p,q])
+        for i in range(0, len(pairs)):
+            p, q = pairs[i]
+            if (p + q)%2 == 0:
+                v_pool.append(f"{p}->{q}")
+                pool.append(of.ops.FermionOperator(str(q)+'^ '+str(p), 1))
+            for j in range(i + 1, len(pairs)):
+                r, s = pairs[j]
+                if ((p + r)%2 == 0 and (q + s)%2 == 0) or ((p + s)%2 == 0 and (q + r)%2 == 0):
+                    v_pool.append(f"{p},{q}->{r},{s}")
+                    pool.append(of.ops.FermionOperator(str(s)+'^ '+str(r)+'^ '+str(q)+' '+str(p), 1))
+        #Normalization
+        for i in range(0, len(pool)):
+             op = copy.copy(pool[i])
+             op -= of.hermitian_conjugated(op)
+             op = of.normal_ordered(op)
+             try: 
+                 assert(op.many_body_order() > 0)
+             except:
+                 print(f"{v_pool[i]} has order 0.")
+             coeff = 0
+             for t in op.terms:                 
+                 coeff_t = op.terms[t]
+                 coeff += coeff_t * coeff_t
+             op = op/np.sqrt(coeff)
+             pool[i] = copy.copy(op)
+
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = N).real) for i in pool]
+
+        self.pool = pool
+        print("Operators in pool:")
+        print(len(pool))
+        return jw_pool, v_pool
 
 
     def uccgsd_pool(self, spin_complement = False, spin_adapt = False):
+        print("Broken!")
+        exit()
         """UCCGSD-based pool constructor
 
         Parameters
@@ -851,8 +893,38 @@ class system_data:
                         for b in range(a+1, N_qubits):
                             if i%2+j%2 == a%2+b%2:
                                 pool.append(of.ops.FermionOperator(str(b)+'^ '+str(a)+'^ '+str(i)+' '+str(j), 1))
-                                v_pool.append(f"{i}{j}->{a}{b}")
+                                v_pool.append(f"{i},{j}->{a},{b}")
+                                print(v_pool[-1])
 
+
+
+            print("New ops:")
+            #New stuff
+            pairs = []
+            for p in range(0, N_qubits):
+                for q in range(p+1, N_qubits):
+                    pairs.append([p, q])
+                    if (p + q)%2 == 0:
+                        string = f"{p}->{q}"
+                        if string not in v_pool:
+                            v_pool.append(string)
+                            print(v_pool[-1])
+
+            for i in range(0, len(pairs)):
+                for j in range(i+1, len(pairs)):
+                    p, q = pairs[i]
+                    r, s = pairs[j]
+                    if (p%2 == r%2 and q%2 == s%2) or (p%2 == s%2 and q%2 == r%2):
+                        string = f"{p},{q}->{r},{s}"
+                        if string not in v_pool:
+                            assert(p == r or q == s or p == s or q == r)
+                            v_pool.append(string)
+                            print(v_pool[-1])
+
+                    
+        print(len(v_pool))
+        exit()
+        '''
         if spin_complement == True:
            M = int(N_qubits/2)
            N = int(N_e/2)
@@ -982,7 +1054,7 @@ class system_data:
     
 
 
-
+        '''
         #Adding normalization
         for i in range(0, len(pool)):
              op = copy.copy(pool[i])
@@ -1004,7 +1076,6 @@ class system_data:
         self.pool = pool
         print("Operators in pool:")
         print(len(pool))
-
         return jw_pool, v_pool
 
 

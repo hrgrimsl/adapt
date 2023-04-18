@@ -509,7 +509,8 @@ class Xiphos:
                 state_j = t_ucc_state(params, ansatz, self.pool, eom_space[j])
                 M[i][j] = M[j][i] = (state_j.T@self.H@state_i).todense()
             M[i][i] -= E0
-
+        print(M.shape)
+        exit()
         E0k, A = np.linalg.eigh(M)
         Excited_Es = [E_k + E0 for E_k in E0k]
         Es = [E0] + Excited_Es
@@ -521,11 +522,12 @@ class Xiphos:
             #I *think* I'm building these states right...
             R_k = np.zeros(self.H.shape)
             R_k = scipy.sparse.csc_matrix(R_k)
-
-
             for i in range(0, len(eom_ops)):
                 R_k += A[i][k] * eom_ops[i]
-            state = R_k@gs
+            minus_params = list(-np.array(params))
+            state = t_ucc_state(minus_params, ansatz, self.pool, gs)
+            state = R_k@state
+            state = t_ucc_state(params, ansatz, self.pool, state)
             states.append(state)
             state = scipy.sparse.csc_matrix(state)
             E = np.ndarray.item((state.T@(self.H@state)).todense())
@@ -535,14 +537,13 @@ class Xiphos:
                 print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
                 if key == "S^2":
                     spins.append(val)
-            S = np.zeros((len(states),len(states)))
-        for i in range(0, len(states)):
-            for j in range(i, len(states)):
-                S[i][j] = S[j][i] = (states[i].T@states[j]).todense()
-        print(S)
-        exit()
-        return [Es[j] for j in approx_singlets]
 
+        singlet_idx = []
+        for i in range(0, len(spins)):
+            if abs(spins[i]) < abs(spins[i] - 2):
+                singlet_idx.append(i)
+        
+        return [Es[i] for i in singlet_idx]
     def sa_adapt(self, params, ansatz, refs, weights, gtol = None, Etol = None, max_depth = None):
         ansatz = copy.copy(ansatz)
         params = np.array(params)
