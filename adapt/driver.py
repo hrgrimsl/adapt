@@ -494,6 +494,7 @@ class Xiphos:
 
         state = t_ucc_state(params, ansatz, self.pool, ref)
         gs = copy.copy(state)
+
         E0 = np.ndarray.item((state.T@(self.H@state)).todense())
         print(f"ADAPT Ground State: {E}")
         for key in self.sym_ops.keys():
@@ -502,16 +503,23 @@ class Xiphos:
             print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
         Excited_Es = []
 
+
         M = np.zeros((len(eom_space),len(eom_space)))
         for i in range(0, len(eom_space)):
             state_i = t_ucc_state(params, ansatz, self.pool, eom_space[i])
             for j in range(i, len(eom_space)):
                 state_j = t_ucc_state(params, ansatz, self.pool, eom_space[j])
+
+
+
+
                 M[i][j] = M[j][i] = (state_j.T@self.H@state_i).todense()
             M[i][i] -= E0
-        print(M.shape)
-        exit()
+        Mat = scipy.sparse.csc_matrix(M)
+        Mat.maxprint = np.inf
+
         E0k, A = np.linalg.eigh(M)
+
         Excited_Es = [E_k + E0 for E_k in E0k]
         Es = [E0] + Excited_Es
         s0 = ((state.T)@(self.sym_ops["S^2"]@state))[0,0].real
@@ -538,12 +546,13 @@ class Xiphos:
                 if key == "S^2":
                     spins.append(val)
 
-        singlet_idx = []
-        for i in range(0, len(spins)):
-            if abs(spins[i]) < abs(spins[i] - 2):
-                singlet_idx.append(i)
-        
-        return [Es[i] for i in singlet_idx]
+        #singlet_idx = []
+        #for i in range(0, len(spins)):
+        #    if abs(spins[i]) < abs(spins[i] - 2):
+        #        singlet_idx.append(i)
+        return [Es, spins]
+        #return [Es[i] for i in singlet_idx]
+
     def sa_adapt(self, params, ansatz, refs, weights, gtol = None, Etol = None, max_depth = None):
         ansatz = copy.copy(ansatz)
         params = np.array(params)
@@ -692,7 +701,7 @@ class Xiphos:
         print("\n---------------------------\n")
         print("\"Adapt.\" - Bear Grylls\n")
         print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
-        return [Es[j] for j in approx_singlets]
+        return [spins, Es]
 
 
     def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1, seed = 0, criteria = 'grad'):
