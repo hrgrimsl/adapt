@@ -693,7 +693,7 @@ class Xiphos:
                     approx_singlets.append(i)
 
             Es.append(E)
-        print(f"Spins of lowest states: {spins[0]} {spins[1]} {spins[2]} {spins[3]} {spins[4]}")
+
         print(f"FCI Solutions:")
         for i in range(0, len(self.ed_energies)):
             print(f"{i} {self.ed_energies[i]}")

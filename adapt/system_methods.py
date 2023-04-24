@@ -391,6 +391,44 @@ class system_data:
         print(len(pool)) 
         return jw_pool, v_pool
 
+    def disco_pool(self):
+        M = int(self.N_qubits/2)
+        occ = self.N_e
+        vir = occ - M
+        pool = []
+        v_pool = []
+        for p in range(0, M):
+            for q in range(p + 1, M):
+                pa = 2*p
+                pb = 2*p + 1
+                qa = 2*q
+                qb = 2*q + 1
+                single_a = f"{qa}^ {pa}"
+                single_b = f"{qb}^ {pb}"
+                double = f"{qa}^ {qb}^ {pb} {pa}"
+                pool.append(of.ops.FermionOperator(single_a, 1/np.sqrt(2))
+                + of.ops.FermionOperator(single_b, 1/np.sqrt(2)))
+                v_pool.append(f"{p}->{q}")
+                pool.append(of.ops.FermionOperator(double, 1))
+                v_pool.append(f"{p} {p} -> {q} {q}")
+       
+        
+        for i in range(0, len(pool)):
+             op = copy.copy(pool[i])
+             op -= of.hermitian_conjugated(op)
+             op = of.normal_ordered(op)
+             assert(op.many_body_order() > 0)
+
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+        
+        self.pool = pool
+        print("Operators in pool:")
+        print(len(pool)) 
+        return jw_pool, v_pool
+
+
+
+
     def uccsd_pool(self, approach = 'vanilla'):
         """UCCSD-based pool constructor
 
