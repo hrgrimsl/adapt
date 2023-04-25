@@ -860,6 +860,71 @@ class system_data:
 
         return jw_pool, v_pool
 
+    def ip_pool(self):
+        M = self.N_qubits
+        N = self.N_e
+
+        pool = []
+        v_pool = []
+        for i in range(0, N):
+            single = f"{i}"
+            pool.append(of.ops.FermionOperator(single, 1))
+            v_pool.append(f"{i} ->")
+            for j in range(i + 1, N):
+                for a in range(N, M):
+                    if i%2 != a%2 and j%2 != a%2:
+                        continue
+                    double = f"{a}^ {j} {i}"
+                    pool.append(of.ops.FermionOperator(double, 1))
+                    v_pool.append(f"{i} {j} -> {a}")
+
+        
+        for i in range(0, len(pool)):
+             op = copy.copy(pool[i])
+             op -= of.hermitian_conjugated(op)
+             op = of.normal_ordered(op)
+             assert(op.many_body_order() > 0)
+
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+        
+        self.pool = pool
+        print("Operators in pool:")
+        print(len(pool)) 
+        return jw_pool, v_pool
+
+    def ea_pool(self):
+        M = self.N_qubits
+        N = self.N_e
+
+        pool = []
+        v_pool = []
+        for a in range(N, M):
+            single = f"{a}^"
+            pool.append(of.ops.FermionOperator(single, 1))
+            v_pool.append(f"-> {a}")
+            for b in range(a + 1, M):
+                for i in range(0, N):
+                    if i%2 != a%2 and i%2 != b%2:
+                        continue
+                    double = f"{a}^ {b}^ {i}"
+                    pool.append(of.ops.FermionOperator(double, 1))
+                    v_pool.append(f"{i} -> {a} {b}")
+
+        
+        for i in range(0, len(pool)):
+             op = copy.copy(pool[i])
+             op -= of.hermitian_conjugated(op)
+             op = of.normal_ordered(op)
+             assert(op.many_body_order() > 0)
+
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+        
+        self.pool = pool
+        print("Operators in pool:")
+        print(len(pool)) 
+        return jw_pool, v_pool
+        
+
     def fixed_uccgsd_pool(self):
         N = self.N_qubits
         pool = []

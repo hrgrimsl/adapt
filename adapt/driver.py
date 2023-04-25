@@ -118,9 +118,9 @@ class Xiphos:
             if abs(self.ed_syms[0]["H"] - self.ed_syms[1]["H"]) < (1/Eh):
                 print(f"\nWARNING:  Lowest two ED solutions may be quasi-degenerate.")
         else:
-            k = min(H.shape[0]-1,40)
+            k = min(H.shape[0]-1,100)
             hdim = H.shape[0] 
-            w, v = scipy.sparse.linalg.eigsh(H, k = min(H.shape[0]-1,40), which = "SA")
+            w, v = scipy.sparse.linalg.eigsh(H, k = min(H.shape[0]-1,100), which = "SA")
             self.ed_energies = w[:k]
             self.ed_wfns = v[:,:k]
             self.ed_syms = []
@@ -510,9 +510,6 @@ class Xiphos:
             for j in range(i, len(eom_space)):
                 state_j = t_ucc_state(params, ansatz, self.pool, eom_space[j])
 
-
-
-
                 M[i][j] = M[j][i] = (state_j.T@self.H@state_i).todense()
             M[i][i] -= E0
         Mat = scipy.sparse.csc_matrix(M)
@@ -528,14 +525,15 @@ class Xiphos:
         for k in range(0, len(Excited_Es)):
             print(f"sc-q-EOM State {k}: {Excited_Es[k]}")
             #I *think* I'm building these states right...
-            R_k = np.zeros(self.H.shape)
-            R_k = scipy.sparse.csc_matrix(R_k)
+            R_k_U = np.zeros(self.H.shape)
+            R_k_U = scipy.sparse.csc_matrix(R_k_U)
             for i in range(0, len(eom_ops)):
-                R_k += A[i][k] * eom_ops[i]
+                R_k_U += A[i][k] * eom_ops[i]
             minus_params = list(-np.array(params))
-            state = t_ucc_state(minus_params, ansatz, self.pool, gs)
-            state = R_k@state
+            #state = t_ucc_state(minus_params, ansatz, self.pool, gs)
+            state = R_k_U@ref
             state = t_ucc_state(params, ansatz, self.pool, state)
+
             states.append(state)
             state = scipy.sparse.csc_matrix(state)
             E = np.ndarray.item((state.T@(self.H@state)).todense())
@@ -578,7 +576,8 @@ class Xiphos:
         while Done == False:
             SA_grad = np.zeros(len(self.pool))
             for i in range(0, len(self.refs)):
-
+                if weights[i] < 1e-8:
+                    continue
                 state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
                 grad = np.array([2 * np.ndarray.item((state.T@self.H_adapt@(op@state)).todense()) for op in self.pool])
                 SA_grad += weights[i] * grad
@@ -588,6 +587,7 @@ class Xiphos:
             SA_E = 0
             states = []
             for i in range(0, len(self.refs)):
+
                 state = t_ucc_state(params, ansatz, self.pool, self.refs[i])
                 states.append(state)
                 E = np.ndarray.item((state.T@(self.H@state)).todense())
@@ -1671,12 +1671,17 @@ def vqe(params, ansatz, H_vqe, pool, ref, strategy = "bfgs", energy = None):
 def sa_ucc_energy(params, ansatz, H, pool, refs, weights):
     E = 0
     for i in range(0, len(refs)):
+        if weights[i] < 1e-8:
+            continue
         E += weights[i]*t_ucc_E(params, ansatz, H, pool, refs[i])
     return E
 
 def sa_ucc_grad(params, ansatz, H, pool, refs, weights):
     grad = 0
+
     for i in range(0, len(refs)):
+        if weights[i] < 1e-8:
+            continue
         grad += weights[i]*t_ucc_grad(params, ansatz, H, pool, refs[i])
     return grad
 
