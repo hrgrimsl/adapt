@@ -515,6 +515,26 @@ class system_data:
         print(len(pool)) 
         return jw_pool, v_pool
 
+    def sc_cis_pool(self):
+        M = int(self.N_qubits/2)
+        N = self.N_e
+        pool = []
+        v_pool = []
+        for i in range(0, int(N/2)):
+            for a in range(int(N/2), M):
+                op = of.ops.FermionOperator(str(2*a)+"^ "+str(2*i), 1/np.sqrt(2))
+                op += of.ops.FermionOperator(str(2*a + 1)+"^ "+str(2*i + 1), 1/np.sqrt(2))
+                pool.append(op)
+                v_pool.append(f"{i}->{a}")
+            jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+
+        self.pool = pool
+        print("Operators in pool:")
+        print(len(pool)) 
+        return jw_pool, v_pool
+
+        
+
     def sc_uccsd_pool(self):
         N_qubits = self.N_qubits
         N_e = self.N_e

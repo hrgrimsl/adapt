@@ -38,7 +38,8 @@ class Xiphos:
         -------
         None
         """
-          
+
+        self.N_qubits = int(math.log2(len(ref.todense())))
         self.H = H
         self.ref = ref
         self.refs = refs
@@ -425,6 +426,71 @@ class Xiphos:
         sha = repo.head.object.hexsha
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
+
+    def check_eom(self, params, ansatz, ref, eom_space = [], eom_ops = []):
+        print("Intermediate EOM Calculation:")
+        state = t_ucc_state(params, ansatz, self.pool, ref)
+        gs = copy.copy(state)
+        E = np.asscalar((gs.T@self.H_vqe@gs).todense())
+        E0 = np.ndarray.item((state.T@(self.H@state)).todense())
+        print(f"ADAPT Ground State: {E}")
+        for key in self.sym_ops.keys():
+            val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+            err = val - self.ed_syms[0][key]
+            print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+        Excited_Es = []
+
+        M = np.zeros((len(eom_space),len(eom_space)))
+        for i in range(0, len(eom_space)):
+            state_i = t_ucc_state(params, ansatz, self.pool, eom_space[i])
+            for j in range(i, len(eom_space)):
+                state_j = t_ucc_state(params, ansatz, self.pool, eom_space[j])
+
+                M[i][j] = M[j][i] = (state_j.T@self.H@state_i).todense()
+            M[i][i] -= E0
+        Mat = scipy.sparse.csc_matrix(M)
+        Mat.maxprint = np.inf
+
+        E0k, A = np.linalg.eigh(M)
+
+        Excited_Es = [E_k + E0 for E_k in E0k]
+        Es = [E0] + Excited_Es
+        s0 = ((state.T)@(self.sym_ops["S^2"]@state))[0,0].real
+        n0 = ((state.T)@(self.sym_ops["N"]@state))[0,0].real
+        spins = [s0]
+        states = []
+        numbers = [n0]
+        for k in range(0, len(Excited_Es)):
+            print(f"sc-q-EOM State {k}: {Excited_Es[k]}")
+            #I *think* I'm building these states right...
+            R_k_U = np.zeros(self.H.shape)
+            R_k_U = scipy.sparse.csc_matrix(R_k_U)
+            for i in range(0, len(eom_ops)):
+                R_k_U += A[i][k] * eom_ops[i]
+            minus_params = list(-np.array(params))
+            #state = t_ucc_state(minus_params, ansatz, self.pool, gs)
+            state = R_k_U@ref
+            state = t_ucc_state(params, ansatz, self.pool, state)
+
+            states.append(state)
+            state = scipy.sparse.csc_matrix(state)
+            E = np.ndarray.item((state.T@(self.H@state)).todense())
+            for key in self.sym_ops.keys():
+                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
+                err = val - self.ed_syms[0][key]
+                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+                if key == "S^2":
+                    spins.append(val)
+                if key == "N":
+                    numbers.append(val)
+            print("Configurations:")
+            state = state.todense()
+            for i in range(0, len(state)):
+                if abs(state[i]) > 1e-8:
+                    formstring = f"0{self.N_qubits}b"
+                    print(f"{state[i]} {format(i, formstring)}")
+        return Es, spins, numbers 
+
     def eom_adapt(self, params, ansatz, ref, eom_space = [], gtol = None, Etol = None, max_depth = None, threads = 1, eom_ops = []):
         ansatz = copy.copy(ansatz)
         params = np.array(params)
@@ -435,6 +501,7 @@ class Xiphos:
         print("Performing ADAPT:")
         print(f"\nADAPT Iteration {iteration}")
         state = t_ucc_state(params, ansatz, self.pool, ref)
+
         E = np.ndarray.item((state.T@(self.H@state)).todense())
 
         print(f"Reference:")
@@ -442,19 +509,19 @@ class Xiphos:
             val = np.ndarray.item((state.T@self.sym_ops[key]@state).todense())
             err = val - self.ed_syms[0][key]
             print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
-        print(f"\nState-Averaged Energy: {SA_E}")
         Done = False
 
         while Done == False:
+            print(f"ADAPT Iteration {iteration}")
+            if iteration == 0:
+                print(f"(HF)")
+            
             state = t_ucc_state(params, ansatz, self.pool, ref)
             grad = np.array([2 * np.ndarray.item((state.T@self.H_adapt@(op@state)).todense()) for op in self.pool])
             gnorm = np.linalg.norm(grad)
             idx = np.argsort(abs(grad))
             E = np.ndarray.item((state.T@(self.H@state)).todense())
-            for key in self.sym_ops.keys():
-                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
-                err = val - self.ed_syms[0][key]
-                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+            Es, spins, numbers = self.check_eom(params, ansatz, ref, eom_space = eom_space, eom_ops = eom_ops)    
 
             print(f"Next operator to be added: {self.v_pool[idx[-1]]}")
             print(f"Gradient norm:             {gnorm:20.16f}")
@@ -487,11 +554,11 @@ class Xiphos:
             params = multi_vqe(params, ansatz, H_vqe, pool, ref, self, guesses = 0, hf = False, threads = threads)
             np.save(f"{self.system}/params", params)
             np.save(f"{self.system}/ops", ansatz)
-            
 
+
+        '''
         print(f"\nConverged ADAPT energies:")          
         
-
         state = t_ucc_state(params, ansatz, self.pool, ref)
         gs = copy.copy(state)
 
@@ -543,19 +610,20 @@ class Xiphos:
                 print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
                 if key == "S^2":
                     spins.append(val)
-
+        '''
         #singlet_idx = []
         #for i in range(0, len(spins)):
         #    if abs(spins[i]) < abs(spins[i] - 2):
         #        singlet_idx.append(i)
-        return [Es, spins]
+        return Es, spins, numbers
         #return [Es[i] for i in singlet_idx]
 
     def sa_adapt(self, params, ansatz, refs, weights, gtol = None, Etol = None, max_depth = None):
         ansatz = copy.copy(ansatz)
         params = np.array(params)
         states = []
-
+        self.refs = refs
+        self.weights = weights
         iteration = len(ansatz)
         SA_E = 0
         print("Performing ADAPT:")
@@ -701,7 +769,7 @@ class Xiphos:
         print("\n---------------------------\n")
         print("\"Adapt.\" - Bear Grylls\n")
         print("\"ADAPT.\" - Harper \"Grimsley Bear\" Grimsley\n")
-        return [spins, Es]
+        return Es, spins, params, ansatz
 
 
     def breadapt(self, params, ansatz, ref, gtol = None, Etol = None, max_depth = None, guesses = 0, n = 1, hf = True, threads = 1, seed = 0, criteria = 'grad'):
