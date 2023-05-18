@@ -460,7 +460,7 @@ class Xiphos:
         spins = [s0]
         states = []
         numbers = [n0]
-        for k in range(0, len(Excited_Es)):
+        for k in range(0, 10):
             print(f"sc-q-EOM State {k}: {Excited_Es[k]}")
             #I *think* I'm building these states right...
             R_k_U = np.zeros(self.H.shape)
@@ -471,7 +471,6 @@ class Xiphos:
             #state = t_ucc_state(minus_params, ansatz, self.pool, gs)
             state = R_k_U@ref
             state = t_ucc_state(params, ansatz, self.pool, state)
-
             states.append(state)
             state = scipy.sparse.csc_matrix(state)
             E = np.ndarray.item((state.T@(self.H@state)).todense())
@@ -483,12 +482,7 @@ class Xiphos:
                     spins.append(val)
                 if key == "N":
                     numbers.append(val)
-            print("Configurations:")
-            state = state.todense()
-            for i in range(0, len(state)):
-                if abs(state[i]) > 1e-8:
-                    formstring = f"0{self.N_qubits}b"
-                    print(f"{state[i]} {format(i, formstring)}")
+
         return Es, spins, numbers 
 
     def eom_adapt(self, params, ansatz, ref, eom_space = [], gtol = None, Etol = None, max_depth = None, threads = 1, eom_ops = []):
@@ -521,7 +515,7 @@ class Xiphos:
             gnorm = np.linalg.norm(grad)
             idx = np.argsort(abs(grad))
             E = np.ndarray.item((state.T@(self.H@state)).todense())
-            Es, spins, numbers = self.check_eom(params, ansatz, ref, eom_space = eom_space, eom_ops = eom_ops)    
+            error = E - self.ed_syms[0]["H"]            
 
             print(f"Next operator to be added: {self.v_pool[idx[-1]]}")
             print(f"Gradient norm:             {gnorm:20.16f}")
@@ -555,68 +549,115 @@ class Xiphos:
             np.save(f"{self.system}/params", params)
             np.save(f"{self.system}/ops", ansatz)
 
-
-        '''
-        print(f"\nConverged ADAPT energies:")          
-        
-        state = t_ucc_state(params, ansatz, self.pool, ref)
-        gs = copy.copy(state)
-
-        E0 = np.ndarray.item((state.T@(self.H@state)).todense())
-        print(f"ADAPT Ground State: {E}")
-        for key in self.sym_ops.keys():
-            val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
-            err = val - self.ed_syms[0][key]
-            print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
-        Excited_Es = []
-
-
-        M = np.zeros((len(eom_space),len(eom_space)))
-        for i in range(0, len(eom_space)):
-            state_i = t_ucc_state(params, ansatz, self.pool, eom_space[i])
-            for j in range(i, len(eom_space)):
-                state_j = t_ucc_state(params, ansatz, self.pool, eom_space[j])
-
-                M[i][j] = M[j][i] = (state_j.T@self.H@state_i).todense()
-            M[i][i] -= E0
-        Mat = scipy.sparse.csc_matrix(M)
-        Mat.maxprint = np.inf
-
-        E0k, A = np.linalg.eigh(M)
-
-        Excited_Es = [E_k + E0 for E_k in E0k]
-        Es = [E0] + Excited_Es
-        s0 = ((state.T)@(self.sym_ops["S^2"]@state))[0,0].real
-        spins = [s0]
-        states = []
-        for k in range(0, len(Excited_Es)):
-            print(f"sc-q-EOM State {k}: {Excited_Es[k]}")
-            #I *think* I'm building these states right...
-            R_k_U = np.zeros(self.H.shape)
-            R_k_U = scipy.sparse.csc_matrix(R_k_U)
-            for i in range(0, len(eom_ops)):
-                R_k_U += A[i][k] * eom_ops[i]
-            minus_params = list(-np.array(params))
-            #state = t_ucc_state(minus_params, ansatz, self.pool, gs)
-            state = R_k_U@ref
-            state = t_ucc_state(params, ansatz, self.pool, state)
-
-            states.append(state)
-            state = scipy.sparse.csc_matrix(state)
-            E = np.ndarray.item((state.T@(self.H@state)).todense())
-            for key in self.sym_ops.keys():
-                val = ((state.T)@(self.sym_ops[key]@state))[0,0].real
-                err = val - self.ed_syms[0][key]
-                print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
-                if key == "S^2":
-                    spins.append(val)
-        '''
-        #singlet_idx = []
-        #for i in range(0, len(spins)):
-        #    if abs(spins[i]) < abs(spins[i] - 2):
-        #        singlet_idx.append(i)
+        Es, spins, numbers = self.check_eom(params, ansatz, ref, eom_space = eom_space, eom_ops = eom_ops)    
         return Es, spins, numbers
         #return [Es[i] for i in singlet_idx]
+
+    def damn_adapt(self, ref, expansion_pool = [], expansion_v_pool = []):
+        iteration = 0
+        ansatz = []
+        params = np.array([])
+        refs = [ref]
+        refstrings = [format(ref.argmax(), f'0{self.N_qubits}b')]
+        #Set of eigenvectors in current manifold
+        c = np.array([[1.0]])
+        print("Performing DAMN-ADAPT\n")
+    
+        Done = False
+        while Done == False:
+            iteration += 1
+            print(f"ADAPT Iteration: {iteration}:\n")
+            SA_grad = np.zeros(len(self.pool))
+            for i in range(0, len(refs)):
+                state = t_ucc_state(params, ansatz, self.pool, refs[i])
+                grad = np.array([2 * np.ndarray.item((state.T@self.H@(op@state)).todense()) for op in self.pool])
+                SA_grad += grad/len(refs)
+            idx = np.argsort(abs(SA_grad))
+            print(f"Ansatz operator addition candidate: {self.v_pool[idx[-1]]}")
+            print(f"w/ Energy Gradient:                 {SA_grad[idx[-1]]}")
+            
+            best = [0, None, None]
+            n = c.shape[0]
+            
+            Urefs = [t_ucc_state(params, ansatz, self.pool, r) for r in refs] 
+            for i in range(0, len(refs)):
+                for j in range(0, len(expansion_pool)):
+                    
+                    Hstate_ij = expansion_pool[j]@refs[i]
+                    if np.linalg.norm(Hstate_ij.todense()) < 1e-8:
+                        continue
+                    bitstring = format(abs(Hstate_ij).argmax(), f"0{self.N_qubits}b")
+                    if bitstring in refstrings:
+                        continue
+                    
+                    Hstate_ij = t_ucc_state(params, ansatz, self.pool, Hstate_ij)
+                    Hstate_ij = self.H@Hstate_ij
+                    dE = 0
+                    for k in range(0, n):
+                        dE_k = 0
+                        for r in range(0, n):
+                            dE_k += (Hstate_ij.T@Urefs[r]*c[:,k][r]).todense()[0,0]  
+                        dE += (2/(n+1))*abs(dE_k)
+                    
+                    if dE > best[0]:
+                        best = [dE, i, j]
+                        
+            i = best[1]
+            j = best[2]
+            new_det = expansion_pool[j]@refs[i]
+            best_det = (abs(new_det)).argmax()
+            bitstring = format(best_det, f'0{self.N_qubits}b')
+            print(f"\nManifold addition candidate: |{bitstring}>")
+            print(f"w/ Manifold Gradient:        {best[0]}\n")
+            
+            if abs(SA_grad[idx[-1]]) >= best[0]:
+                print(f"Adding {self.v_pool[idx[-1]]} to ansatz.")
+                ansatz.append(idx[-1])
+                params = np.array(list(params) + [0])
+
+            else:
+                print(f"Adding {bitstring} as a reference.")
+                refs.append(new_det)
+                refstrings.append(bitstring)
+                
+            print("Current ansatz:")
+            for i in reversed(range(0,len(ansatz))):
+                print(f"{params[i]} {self.v_pool[ansatz[i]]}")
+            print(f"|0>")
+            print("\nCurrent averaging manifold:")
+            for i in range(0, len(refs)):
+                print(f"|{refstrings[i]}>")
+
+            
+            self.refs = refs
+            self.weights = [1/len(refs) for i in refs]
+
+            if len(ansatz) > 0: 
+                print("\nDoing a state-averaged VQE:\n")
+                params = sa_vqe(params, ansatz, self)
+            
+            print("\nDiagonalizing Hbar within averaging manifold:\n")
+            Hbar = np.zeros((len(refs),len(refs)))
+            for i in range(0, len(refs)):
+                Uri = t_ucc_state(params, ansatz, self.pool, refs[i])
+                for j in range(i, len(refs)):    
+                    Urj = t_ucc_state(params, ansatz, self.pool, refs[j])
+                    Hbar[i,j] = Hbar[j,i] = (Uri.T@self.H@Urj).todense()[0,0]
+            Es, c = np.linalg.eigh(Hbar)
+            for i in range(0, len(Es)):
+                print(f"State {i} energy: {Es[i]}")
+            
+            if iteration > 100:
+                exit()
+                            
+                    
+                
+            
+                
+                
+
+            
+                            
 
     def sa_adapt(self, params, ansatz, refs, weights, gtol = None, Etol = None, max_depth = None):
         ansatz = copy.copy(ansatz)

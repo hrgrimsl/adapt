@@ -525,14 +525,90 @@ class system_data:
                 op = of.ops.FermionOperator(str(2*a)+"^ "+str(2*i), 1/np.sqrt(2))
                 op += of.ops.FermionOperator(str(2*a + 1)+"^ "+str(2*i + 1), 1/np.sqrt(2))
                 pool.append(op)
-                v_pool.append(f"{i}->{a}")
-            jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+                v_pool.append(f"{i}->{a} (Singlet)")
+                '''
+                op = of.ops.FermionOperator(str(2*a)+"^ "+str(2*i), 1/np.sqrt(2))
+                op -= of.ops.FermionOperator(str(2*a + 1)+"^ "+str(2*i + 1), 1/np.sqrt(2))
+                pool.append(op)
+                v_pool.append(f"{i}->{a} (Triplet)")
+                '''
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
 
         self.pool = pool
         print("Operators in pool:")
         print(len(pool)) 
         return jw_pool, v_pool
 
+    def cis_pool(self):
+        N = self.N_e
+        M = self.N_qubits
+        pool = []
+        v_pool = []
+        for i in range(0, N):
+            for a in range(N, M):
+                if (i+a)%2 == 0:
+                    opstring = f"{a}^ {i}"
+                    op = of.ops.FermionOperator(opstring, 1)
+                    pool.append(op)
+                    v_pool.append(f"{i}->{a}")
+
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+        self.pool = pool
+        print("Length of CIS pool:")
+        print(len(pool))
+        return jw_pool, v_pool
+
+    def cisd_pool(self):
+        N = self.N_e
+        M = self.N_qubits
+        pool = []
+        v_pool = []
+        for i in range(0, N):
+            for a in range(N, M):
+                if i%2 == a%2:                  
+                    opstring = f"{a}^ {i}"     
+                    op = of.ops.FermionOperator(opstring, 1)
+                    pool.append(op)            
+                    v_pool.append(f"{i}->{a}")
+                for j in range(i + 1, N):
+                    for b in range(a + 1, M):
+                        if (a%2 + b%2) == (i%2 + j%2):
+                            opstring = f"{a}^ {b}^ {i} {j}"
+                            op = of.ops.FermionOperator(opstring, 1)
+                            pool.append(op)
+                            v_pool.append(f"{i},{j}->{a},{b}")
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+        self.pool = pool
+        print("Length of CISD pool:")
+        print(len(pool))
+        return jw_pool, v_pool
+    
+    def cigsd_pool(self):
+        N = self.N_qubits
+        pool = []
+        v_pool = []
+        pairs = []
+        for p in range(0, N):
+            for q in range(p + 1, N):
+                pairs.append([p,q])
+        for i in range(0, len(pairs)):
+            p, q = pairs[i]
+            if (p + q)%2 == 0:
+                v_pool.append(f"{p}->{q}")
+                pool.append(of.ops.FermionOperator(str(q)+'^ '+str(p), 1))
+            for j in range(i + 1, len(pairs)):
+                r, s = pairs[j]
+                if ((p + r)%2 == 0 and (q + s)%2 == 0) or ((p + s)%2 == 0 and (q + r)%2 == 0):
+                    v_pool.append(f"{p},{q}->{r},{s}")
+                    pool.append(of.ops.FermionOperator(str(s)+'^ '+str(r)+'^ '+str(q)+' '+str(p), 1))
+
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = N).real) for i in pool]
+
+        self.pool = pool
+        print("Operators in CIGSD pool:")
+        print(len(pool))
+        return jw_pool, v_pool
+        
         
 
     def sc_uccsd_pool(self):
