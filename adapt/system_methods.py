@@ -583,34 +583,6 @@ class system_data:
         print(len(pool))
         return jw_pool, v_pool
     
-    def cigsd_pool(self):
-        N = self.N_qubits
-        pool = []
-        v_pool = []
-        pairs = []
-        for p in range(0, N):
-            for q in range(p + 1, N):
-                pairs.append([p,q])
-        for i in range(0, len(pairs)):
-            p, q = pairs[i]
-            if (p + q)%2 == 0:
-                v_pool.append(f"{p}->{q}")
-                pool.append(of.ops.FermionOperator(str(q)+'^ '+str(p), 1))
-            for j in range(i + 1, len(pairs)):
-                r, s = pairs[j]
-                if ((p + r)%2 == 0 and (q + s)%2 == 0) or ((p + s)%2 == 0 and (q + r)%2 == 0):
-                    v_pool.append(f"{p},{q}->{r},{s}")
-                    pool.append(of.ops.FermionOperator(str(s)+'^ '+str(r)+'^ '+str(q)+' '+str(p), 1))
-
-        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = N).real) for i in pool]
-
-        self.pool = pool
-        print("Operators in CIGSD pool:")
-        print(len(pool))
-        return jw_pool, v_pool
-        
-        
-
     def sc_uccsd_pool(self):
         N_qubits = self.N_qubits
         N_e = self.N_e
@@ -1052,7 +1024,7 @@ class system_data:
              for t in op.terms:                 
                  coeff_t = op.terms[t]
                  coeff += coeff_t * coeff_t
-             op = op/np.sqrt(coeff)
+             #op = op/np.sqrt(coeff)
              pool[i] = copy.copy(op)
 
         jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = N).real) for i in pool]
