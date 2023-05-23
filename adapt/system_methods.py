@@ -693,7 +693,116 @@ class system_data:
         print("Operators in pool:")
         print(len(pool)) 
         return jw_pool, v_pool
- 
+
+    def sa_uccgsd_pool(self):
+        N = self.N_e
+        M = int(self.N_qubits/2)
+        pool = []
+        v_pool = []
+
+        #Singles
+        for p in range(0, M):
+            for q in range(p + 1, M):
+                aa = f"{2*q}^ {2*p}"
+                bb = f"{2*q + 1}^ {2*p + 1}"
+                pool.append(of.ops.FermionOperator(aa, 1/np.sqrt(2)) + of.ops.FermionOperator(bb, 1/np.sqrt(2)))
+                v_pool.append(f"{p}->{q}")                
+
+        pairs = []
+        for p in range(0, M):
+            for q in range(p, M):
+                pairs.append((p,q))
+        
+        for i in range(0, len(pairs)):
+            for j in range(i + 1, len(pairs)):
+                pair1 = pairs[i]
+                pair2 = pairs[j]
+                p, q = pair1
+                r, s = pair2
+                pa = 2*p
+                pb = 2*p + 1
+                qa = 2*q
+                qb = 2*q + 1
+                ra = 2*r
+                rb = 2*r + 1
+                sa = 2*s
+                sb = 2*s + 1
+                
+                #pp -> rr
+                if p == q and r == s:
+                    abba_rrpp = f"{ra}^ {rb}^ {pb} {pa}"
+                    pool.append(of.ops.FermionOperator(abba_rrpp, 1))
+                    v_pool.append(f"{p},{p}->{r},{r}")
+                    continue
+
+                #pp -> rs
+                if p == q:
+                    abba_rspp = f"{ra}^ {sb}^ {pb} {pa}"
+                    abba_srpp = f"{sa}^ {rb}^ {pb} {pa}"
+                    pool.append(of.ops.FermionOperator(abba_rspp, 1/np.sqrt(2)))
+                    pool[-1] += of.ops.FermionOperator(abba_srpp, 1/np.sqrt(2))
+                    v_pool.append(f"{p},{p}->{r},{s}")
+                    continue
+
+                #pq -> rr
+                if r == s:
+                    abba_rrqp = f"{ra}^ {rb}^ {qb} {pa}"
+                    abba_rrpq = f"{ra}^ {rb}^ {pb} {qa}"
+                    pool.append(of.ops.FermionOperator(abba_rrqp, 1/np.sqrt(2)))
+                    pool[-1] += of.ops.FermionOperator(abba_rrpq, 1/np.sqrt(2))
+                    v_pool.append(f"{p},{q}->{r},{r}")
+                    continue
+
+                #pq -> rs (Includes correlated singles.)
+                aaaa_rsqp = f"{ra}^ {sa}^ {qa} {pa}"
+                abba_rsqp = f"{ra}^ {sb}^ {qb} {pa}"
+                abba_srqp = f"{sa}^ {rb}^ {qb} {pa}"
+                abba_rspq = f"{ra}^ {sb}^ {pb} {qa}"
+                abba_srpq = f"{sa}^ {rb}^ {pb} {qa}"
+                bbbb_rsqp = f"{rb}^ {sb}^ {qb} {pb}"
+                
+                pool.append(of.ops.FermionOperator(aaaa_rsqp, 2/np.sqrt(12)))
+                pool[-1] += of.ops.FermionOperator(bbbb_rsqp, 2/np.sqrt(12))
+                pool[-1] += of.ops.FermionOperator(abba_rsqp, 1/np.sqrt(12))
+                pool[-1] += of.ops.FermionOperator(abba_srqp, -1/np.sqrt(12))
+                pool[-1] += of.ops.FermionOperator(abba_rspq, -1/np.sqrt(12))
+                pool[-1] += of.ops.FermionOperator(abba_srpq, 1/np.sqrt(12))
+                v_pool.append(f"{p},{q}->{r},{s} (Type A per Szabo)")
+
+                pool.append(of.ops.FermionOperator(abba_rsqp, 1/2))
+                pool[-1] += of.ops.FermionOperator(abba_srqp, 1/2)
+                pool[-1] += of.ops.FermionOperator(abba_rspq, 1/2)
+                pool[-1] += of.ops.FermionOperator(abba_srpq, 1/2)
+                v_pool.append(f"{p},{q}->{r},{s} (Type B per Szabo)")
+
+        #Normalize
+        for i in range(0, len(pool)):
+            op = copy.copy(pool[i])
+            op -= of.hermitian_conjugated(op)
+            op = of.normal_ordered(op) 
+            assert(op.many_body_order() > 0)
+             
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+
+        self.pool = pool
+        print("Operators in SA-UCCGSD pool:")
+        print(len(pool))
+        #for i in v_pool:
+        #    print(i)
+        
+        return jw_pool, v_pool
+                
+                
+                                
+
+                                  
+                            
+        
+
+        
+
+                        
+
     def qeb_pool(self):
         """
         n_orb is number of spatial orbitals assuming that spin orbitals are labelled

@@ -580,7 +580,12 @@ class Xiphos:
             print(f"{i} {energies[i]-(energies[0] - self.E_best)}")
         print("\n")    
 
-    def damn_adapt(self, ref, expansion_pool = [], expansion_v_pool = [], maxdepth = 10, maxspace = 4):
+    def damn_adapt(self, ref, expansion_pool = [], maxdepth = 20, maxspace = 3):
+        self.diags = [None for i in self.v_pool]
+        self.unitaries = [None for i in self.v_pool]
+
+
+
         iteration = 0
         ansatz = []
         params = np.array([])
@@ -609,18 +614,24 @@ class Xiphos:
             
             Urefs = [t_ucc_state(params, ansatz, self.pool, r) for r in refs] 
             for i in range(0, len(refs)):
+                if len(refs) >= maxspace:
+                    break
                 for j in range(0, len(expansion_pool)):
                     
                     Hstate_ij = expansion_pool[j]@refs[i]
                     
                     if np.linalg.norm(Hstate_ij.todense()) < 1e-8:
                         continue
-                    Hstate_ij *= 1/scipy.sparse.linalg.norm(Hstate_ij)
                     
-                    bitstring = format(abs(Hstate_ij).argmax(), f"0{self.N_qubits}b")
-                    if bitstring in refstrings:
+                    exclude = False
+                    for r in refs:
+                        if abs((r.T@Hstate_ij).todense()[0,0]) > 1e-8:
+                            exclude = True
+                    if exclude == True:
                         continue
-                    
+
+                    Hstate_ij *= 1/scipy.sparse.linalg.norm(Hstate_ij)
+                     
                     Hstate_ij = t_ucc_state(params, ansatz, self.pool, Hstate_ij)
                     Hstate_ij = self.H@Hstate_ij
                     dE = 0
@@ -632,27 +643,47 @@ class Xiphos:
                     
                     if dE > best[0]:
                         best = [dE, i, j]
-                        
-            i = best[1]
-            j = best[2]
-            new_det = expansion_pool[j]@refs[i]
-            best_det = (abs(new_det)).argmax()
-            bitstring = format(best_det, f'0{self.N_qubits}b')
-            print(f"\nManifold addition candidate: |{bitstring}>")
-            print(f"w/ Manifold Gradient:          {best[0]}\n")
+
+            if len(refs) < maxspace:            
+                i = best[1]
+                j = best[2]
+                new_det = expansion_pool[j]@refs[i]
+                new_det *= 1/scipy.sparse.linalg.norm(new_det)
             
-            if abs(SA_grad[idx[-1]]) >= best[0] and len(ansatz) < maxdepth:
+                bitstring = ""
+                for k in range(0, self.H.shape[0]):
+                  if abs(new_det.todense()[k]) > 1e-8:
+                     bitstring += format(k, f"0{self.N_qubits}b") + "/"
+                bitstring = bitstring[:-1]
+
+                print(f"\nManifold addition candidate: |{bitstring}>")
+                print(f"w/ Manifold Gradient:          {best[0]}\n")
+            
+            if (len(refs) >= maxspace or abs(SA_grad[idx[-1]]) >= best[0]) and len(ansatz) < maxdepth :
                 print(f"Adding {self.v_pool[idx[-1]]} to ansatz.")
                 ansatz = [idx[-1]] + ansatz
                 params = np.array([0] + list(params))
+                
+                if self.diags[idx[-1]] is None:
+                    print("Diagonalizing operator...")
+                    start = time.time()
+                    G = self.pool[idx[-1]].todense()
+                    H = -1j * G
+                    w, v = np.linalg.eigh(H)
+                    self.diags[idx[-1]] = 1j * w
+                    v[abs(v) < 1e-16] = 0
+                    v = scipy.sparse.csc_matrix(v)
+                    self.unitaries[idx[-1]] = v
+                    stop = time.time()
+                    print(f"Operator diagonalized in {stop-start} s")
 
             elif len(refs) < maxspace:
                 print(f"Adding {bitstring} as a reference.")
                 refs.append(new_det)
                 refstrings.append(bitstring)
+                params *= 0
                 
-            else:
-                
+            else: 
                 exit()
 
             print("Current ansatz:")
@@ -1167,6 +1198,8 @@ class Xiphos:
         return params
 
     def gd_pretend_adapt(self, params, ansatz, ref, order = [], gtol = None, Etol = None, max_depth = None, guesses = 0, hf = True, threads = 1, seed = 0, F = None, steps = 100):
+        print("I don't trust this code- I don't think it's ever been used, or it would have broken.")
+        exit()
         """Run one or more ADAPT calculations with diagonalized generators
 
         Parameters
@@ -1213,9 +1246,11 @@ class Xiphos:
                 self.diags[j] = 1j * w
                 v[abs(v) < 1e-16] = 0
                 v = scipy.sparse.csc_matrix(v)
+                #The line below had i, not j.  This could cause problems, but not if starting from an empty ansatz.
                 self.unitaries[i] = v
                 stop = time.time()
                 print(f"Operator diagonalized in {stop-start} s")
+        
         state = self.gd_t_ucc_state(params, ansatz)
         iteration = len(ansatz)
         print(f"\nADAPT Iteration {iteration}")
