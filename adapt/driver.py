@@ -732,6 +732,7 @@ class Xiphos:
              The error from exact diagonalization
         """
         print("I fixed an error in this but have not tested it.")
+        exit()
         self.diags = [None for i in self.v_pool]
         self.unitaries = [None for i in self.v_pool]
 
