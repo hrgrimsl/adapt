@@ -731,7 +731,7 @@ class Xiphos:
         error : float
              The error from exact diagonalization
         """
-
+        print("I fixed an error in this but have not tested it.")
         self.diags = [None for i in self.v_pool]
         self.unitaries = [None for i in self.v_pool]
 
@@ -746,7 +746,7 @@ class Xiphos:
                 self.diags[j] = 1j * w
                 v[abs(v) < 1e-16] = 0
                 v = scipy.sparse.csc_matrix(v)
-                self.unitaries[i] = v
+                self.unitaries[j] = v
                 stop = time.time()
                 print(f"Operator diagonalized in {stop-start} s")
         state = self.gd_t_ucc_state(params, ansatz)
