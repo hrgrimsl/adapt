@@ -694,6 +694,55 @@ class system_data:
         print(len(pool)) 
         return jw_pool, v_pool
 
+    def sa_puccgd_pool(self):
+        N = self.N_e
+        M = int(self.N_qubits/2)
+        pool = []
+        v_pool = []
+
+        pairs = []
+        for p in range(0, M):
+            pairs.append((p,p))
+        
+        for i in range(0, len(pairs)):
+            for j in range(i + 1, len(pairs)):
+                pair1 = pairs[i]
+                pair2 = pairs[j]
+                p, q = pair1
+                r, s = pair2
+                pa = 2*p
+                pb = 2*p + 1
+                qa = 2*q
+                qb = 2*q + 1
+                ra = 2*r
+                rb = 2*r + 1
+                sa = 2*s
+                sb = 2*s + 1
+                
+                #pp -> rr
+                if p == q and r == s:
+                    abba_rrpp = f"{ra}^ {rb}^ {pb} {pa}"
+                    pool.append(of.ops.FermionOperator(abba_rrpp, 1))
+                    v_pool.append(f"{p},{p}->{r},{r}")
+                    continue
+        #Normalize
+        for i in range(0, len(pool)):
+            op = copy.copy(pool[i])
+            op -= of.hermitian_conjugated(op)
+            op = of.normal_ordered(op) 
+            assert(op.many_body_order() > 0)
+             
+        jw_pool = [scipy.sparse.csr.csr_matrix(of.linalg.get_sparse_operator(i, n_qubits = self.N_qubits).real) for i in pool]
+
+        self.pool = pool
+        print("Operators in SA-UCCGSD pool:")
+        print(len(pool))
+        #for i in v_pool:
+        #    print(i)
+        
+        return jw_pool, v_pool
+        
+
     def sa_uccgsd_pool(self):
         N = self.N_e
         M = int(self.N_qubits/2)

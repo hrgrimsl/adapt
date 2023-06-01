@@ -425,7 +425,7 @@ class Xiphos:
         print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
 
 
-    def check_eom(self, params, ansatz, ref, eom_space = [], eom_ops = []):
+    def check_eom(self, params, ansatz, ref, eom_space = []):
         print("Intermediate EOM Calculation:")
         state = t_ucc_state(params, ansatz, self.pool, ref)
         gs = copy.copy(state)
@@ -458,16 +458,14 @@ class Xiphos:
         spins = [s0]
         states = []
         numbers = [n0]
-        for k in range(0, 10):
+        for k in range(0, len(eom_space)):
             print(f"sc-q-EOM State {k}: {Excited_Es[k]}")
             #I *think* I'm building these states right...
-            R_k_U = np.zeros(self.H.shape)
-            R_k_U = scipy.sparse.csc_matrix(R_k_U)
-            for i in range(0, len(eom_ops)):
-                R_k_U += A[i][k] * eom_ops[i]
+            state = scipy.sparse.csc_matrix(np.zeros(state.shape))
+            for i in range(0, len(eom_space)):
+                state += A[i][k] * eom_space[i]
             minus_params = list(-np.array(params))
             #state = t_ucc_state(minus_params, ansatz, self.pool, gs)
-            state = R_k_U@ref
             state = t_ucc_state(params, ansatz, self.pool, state)
             states.append(state)
             state = scipy.sparse.csc_matrix(state)
@@ -483,11 +481,11 @@ class Xiphos:
 
         return Es, spins, numbers 
 
-    def eom_adapt(self, params, ansatz, ref, eom_space = [], gtol = None, Etol = None, max_depth = None, threads = 1, eom_ops = []):
+    def eom_adapt(self, params, ansatz, ref, eom_space = [], gtol = None, Etol = None, max_depth = None, threads = 1):
         ansatz = copy.copy(ansatz)
         params = np.array(params)
         states = []
-
+        self.ref = ref
         iteration = len(ansatz)
         SA_E = 0
         print("Performing ADAPT:")
@@ -542,17 +540,18 @@ class Xiphos:
             params = np.array([0] + list(params))              
             ansatz = [idx[-1]] + ansatz
             H_vqe = copy.copy(self.H_vqe)
-            pool = copy.copy(self.pool)            
+            pool = copy.copy(self.pool)
+            
             params = multi_vqe(params, ansatz, H_vqe, pool, ref, self, guesses = 0, hf = False, threads = threads)
+            
             np.save(f"{self.system}/params", params)
             np.save(f"{self.system}/ops", ansatz)
 
-        Es, spins, numbers = self.check_eom(params, ansatz, ref, eom_space = eom_space, eom_ops = eom_ops)    
+        Es, spins, numbers = self.check_eom(params, ansatz, ref, eom_space = eom_space)    
         return Es, spins, numbers
         #return [Es[i] for i in singlet_idx]
 
     def analyze_ensemble(self, params, ansatz, c):
-        
         refs = self.refs
         keystring = "State "
         for key in self.sym_ops.keys():
@@ -568,7 +567,7 @@ class Xiphos:
             state = scipy.sparse.csc_matrix(self.refs[0].shape)
             for j in range(0, len(Urefs)):
                 state += c[:,i][j] * Urefs[j]
-            datstring = f"{i} "
+            datstring = f"Diagonalized state {i} "
             for key in self.sym_ops.keys():
                 val = np.ndarray.item((state.T@self.sym_ops[key]@state).todense())
                 if key == "H":
@@ -578,22 +577,36 @@ class Xiphos:
         print("\nShifted energies")
         for i in range(0, len(energies)):
             print(f"{i} {energies[i]-(energies[0] - self.E_best)}")
-        print("\n")    
-
-    def damn_adapt(self, ref, expansion_pool = [], maxdepth = 20, maxspace = 3):
-        self.diags = [None for i in self.v_pool]
-        self.unitaries = [None for i in self.v_pool]
+        print("\n")
+        return energies 
 
 
-
+    def state_averaged_adapt(self, refs, maxdepth = 50, diags = None, unitaries = None):
+        if diags is None:
+            self.diags = [None for i in self.v_pool]
+            self.unitaries = [None for i in self.v_pool]
+        else:
+            self.diags = diags
+            self.unitaries = unitaries
+        
         iteration = 0
         ansatz = []
         params = np.array([])
-        refs = [ref]
-        refstrings = [format(ref.argmax(), f'0{self.N_qubits}b')]
+        refstrings = [format(i.argmax(), f'0{self.N_qubits}b') for i in refs]
         #Set of eigenvectors in current manifold
-        c = np.array([[1.0]])
-        self.E_best = (ref.T@self.H@ref).todense()[0,0]
+        
+        self.refs = refs
+        self.E_best = 0
+        print("\nDiagonalizing Hbar within averaging manifold:\n")
+        Hbar = np.zeros((len(refs),len(refs)))
+        for i in range(0, len(refs)):
+            Uri = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[i]))
+            for j in range(i, len(refs)):    
+                Urj = scipy.sparse.csc_matrix(t_ucc_state(params, ansatz, self.pool, refs[j]))
+                Hbar[i,j] = Hbar[j,i] = (Uri.T@self.H@Urj).todense()[0,0]
+        Es, c = np.linalg.eigh(Hbar)
+        self.energies = self.analyze_ensemble(params, ansatz, c)
+        self.E_best = Es[0]
         print("Performing DAMN-ADAPT\n")
     
         Done = False
@@ -602,18 +615,117 @@ class Xiphos:
             print(f"ADAPT Iteration {iteration}:\n")
             SA_grad = np.zeros(len(self.pool))
             for i in range(0, len(refs)):
-                state = t_ucc_state(params, ansatz, self.pool, refs[i])
+                state = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[i])) 
                 grad = np.array([2 * np.ndarray.item((state.T@self.H@(op@state)).todense()) for op in self.pool])
                 SA_grad += grad/len(refs)
             idx = np.argsort(abs(SA_grad))
             print(f"Ansatz operator addition candidate: {self.v_pool[idx[-1]]}")
             print(f"w/ Energy Gradient:                 {SA_grad[idx[-1]]}")
             
-            best = [0, None, None]
+            
+            
+            if len(ansatz) < maxdepth and (len(ansatz) == 0 or idx[-1] != ansatz[0]):
+                print(f"Adding {self.v_pool[idx[-1]]} to ansatz.")
+                ansatz = [idx[-1]] + ansatz
+                params = np.array([0] + list(params))
+                
+                if self.diags[idx[-1]] is None:
+                    print("Diagonalizing operator...")
+                    start = time.time()
+                    G = self.pool[idx[-1]].todense()
+                    H = -1j * G
+                    w, v = np.linalg.eigh(H)
+                    self.diags[idx[-1]] = 1j * w
+                    v[abs(v) < 1e-16] = 0
+                    v = scipy.sparse.csc_matrix(v)
+                    self.unitaries[idx[-1]] = v
+                    stop = time.time()
+                    print(f"Operator diagonalized in {stop-start} s")
+
+            elif idx[-1] == ansatz[0]:
+                print("ADAPT tried to add the same operator again.  Aborting.")
+                return self.energies
+            
+            else:
+                print("Max circuit depth reached.") 
+                return self.energies
+
+            print("Current ansatz:")
+            for i in range(0,len(ansatz)):
+                print(f"{params[i]} {self.v_pool[ansatz[i]]}")
+            print(f"|0>")
+            
+            
+            self.refs = refs
+            self.weights = [1/len(refs) for i in refs]
+            
+            if len(ansatz) > 0: 
+                print("\nDoing a state-averaged VQE:\n")
+                params = self.sa_vqe(params, ansatz)
+                gnorm = np.linalg.norm(self.sa_ucc_grad(params, ansatz, self.H, self.pool, self.refs, self.weights))
+                print(f"GNORM: {gnorm}") 
+            
+            print("\nDiagonalizing Hbar within averaging manifold:\n")
+            Hbar = np.zeros((len(refs),len(refs)))
+            for i in range(0, len(refs)):
+                Uri = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[i]))
+                for j in range(i, len(refs)):    
+                    Urj = scipy.sparse.csc_matrix(t_ucc_state(params, ansatz, self.pool, refs[j]))
+                    Hbar[i,j] = Hbar[j,i] = (Uri.T@self.H@Urj).todense()[0,0]
+            Es, c = np.linalg.eigh(Hbar)
+            if Es[0] < self.E_best:
+                self.E_best = Es[0]
+            print("Ensemble Analysis:")                
+            self.energies = self.analyze_ensemble(params, ansatz, c)
+
+
+    def damn_adapt(self, refs, expansion_pool = [], maxdepth = 50, maxspace = 6, diags = None, unitaries = None):
+        if diags is None:
+            self.diags = [None for i in self.v_pool]
+            self.unitaries = [None for i in self.v_pool]
+        else:
+            self.diags = diags
+            self.unitaries = unitaries
+        ref = refs[0] 
+        iteration = 0
+        ansatz = []
+        params = np.array([])
+        refstrings = [format(i.argmax(), f'0{self.N_qubits}b') for i in refs]
+        #Set of eigenvectors in current manifold
+        
+        self.refs = refs
+        self.E_best = 0
+        print("\nDiagonalizing Hbar within averaging manifold:\n")
+        Hbar = np.zeros((len(refs),len(refs)))
+        for i in range(0, len(refs)):
+            Uri = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[i]))
+            for j in range(i, len(refs)):    
+                Urj = scipy.sparse.csc_matrix(t_ucc_state(params, ansatz, self.pool, refs[j]))
+                Hbar[i,j] = Hbar[j,i] = (Uri.T@self.H@Urj).todense()[0,0]
+        Es, c = np.linalg.eigh(Hbar)
+        self.energies = self.analyze_ensemble(params, ansatz, c)
+        self.E_best = Es[0]
+        print("Performing DAMN-ADAPT\n")
+    
+        Done = False
+        while Done == False:
+            iteration += 1
+            print(f"ADAPT Iteration {iteration}:\n")
+            SA_grad = np.zeros(len(self.pool))
+            for i in range(0, len(refs)):
+                state = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[i])) 
+                grad = np.array([2 * np.ndarray.item((state.T@self.H@(op@state)).todense()) for op in self.pool])
+                SA_grad += grad/len(refs)
+            idx = np.argsort(abs(SA_grad))
+            print(f"Ansatz operator addition candidate: {self.v_pool[idx[-1]]}")
+            print(f"w/ Energy Gradient:                 {SA_grad[idx[-1]]}")
+            
+            best = [-1, None, None]
             n = c.shape[0]
             
-            Urefs = [t_ucc_state(params, ansatz, self.pool, r) for r in refs] 
+            Urefs = [scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = r)) for r in refs] 
             for i in range(0, len(refs)):
+                
                 if len(refs) >= maxspace:
                     break
                 for j in range(0, len(expansion_pool)):
@@ -621,6 +733,7 @@ class Xiphos:
                     Hstate_ij = expansion_pool[j]@refs[i]
                     
                     if np.linalg.norm(Hstate_ij.todense()) < 1e-8:
+                        
                         continue
                     
                     exclude = False
@@ -632,14 +745,14 @@ class Xiphos:
 
                     Hstate_ij *= 1/scipy.sparse.linalg.norm(Hstate_ij)
                      
-                    Hstate_ij = t_ucc_state(params, ansatz, self.pool, Hstate_ij)
+                    Hstate_ij = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = Hstate_ij))
                     Hstate_ij = self.H@Hstate_ij
                     dE = 0
                     for k in range(0, n):
                         dE_k = 0
                         for r in range(0, n):
                             dE_k += (Hstate_ij.T@Urefs[r]*c[:,k][r]).todense()[0,0]  
-                        dE += (2/(n+1))*abs(dE_k)
+                        dE += (2/(n))*abs(dE_k)
                     
                     if dE > best[0]:
                         best = [dE, i, j]
@@ -647,6 +760,7 @@ class Xiphos:
             if len(refs) < maxspace:            
                 i = best[1]
                 j = best[2]
+                
                 new_det = expansion_pool[j]@refs[i]
                 new_det *= 1/scipy.sparse.linalg.norm(new_det)
             
@@ -659,7 +773,7 @@ class Xiphos:
                 print(f"\nManifold addition candidate: |{bitstring}>")
                 print(f"w/ Manifold Gradient:          {best[0]}\n")
             
-            if (len(refs) >= maxspace or abs(SA_grad[idx[-1]]) >= best[0]) and len(ansatz) < maxdepth :
+            if (len(refs) >= maxspace or abs(SA_grad[idx[-1]]) >= best[0]+1e6) and len(ansatz) < maxdepth:
                 print(f"Adding {self.v_pool[idx[-1]]} to ansatz.")
                 ansatz = [idx[-1]] + ansatz
                 params = np.array([0] + list(params))
@@ -682,9 +796,9 @@ class Xiphos:
                 refs.append(new_det)
                 refstrings.append(bitstring)
                 params *= 0
-                
+
             else: 
-                exit()
+                return self.energies
 
             print("Current ansatz:")
             for i in range(0,len(ansatz)):
@@ -700,22 +814,23 @@ class Xiphos:
             
             if len(ansatz) > 0: 
                 print("\nDoing a state-averaged VQE:\n")
-                params = sa_vqe(params, ansatz, self)
-            
+                params = self.sa_vqe(params, ansatz)
+                gnorm = np.linalg.norm(self.sa_ucc_grad(params, ansatz, self.H, self.pool, self.refs, self.weights))
+                print(f"GNORM: {gnorm}") 
             
 
             print("\nDiagonalizing Hbar within averaging manifold:\n")
             Hbar = np.zeros((len(refs),len(refs)))
             for i in range(0, len(refs)):
-                Uri = t_ucc_state(params, ansatz, self.pool, refs[i])
+                Uri = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[i]))
                 for j in range(i, len(refs)):    
-                    Urj = t_ucc_state(params, ansatz, self.pool, refs[j])
+                    Urj = scipy.sparse.csc_matrix(t_ucc_state(params, ansatz, self.pool, refs[j]))
                     Hbar[i,j] = Hbar[j,i] = (Uri.T@self.H@Urj).todense()[0,0]
             Es, c = np.linalg.eigh(Hbar)
             if Es[0] < self.E_best:
                 self.E_best = Es[0]
             print("Ensemble Analysis:")                
-            self.analyze_ensemble(params, ansatz, c)
+            self.energies = self.analyze_ensemble(params, ansatz, c)
 
             
             
@@ -1027,9 +1142,10 @@ class Xiphos:
         #print(f"Git revision:\ngithub.com/hrgrimsl/fixed_adapt/commit/{sha}")
         return error
 
-    def gd_t_ucc_state(self, params, ansatz):
-
-        state = copy.copy(self.ref).todense()
+    def gd_t_ucc_state(self, params, ansatz, ref = None):
+        if ref is None:
+            ref = self.ref
+        state = copy.copy(ref).todense()
         for i in reversed(range(0, len(ansatz))):
             U = self.unitaries[ansatz[i]]
             v = self.diags[ansatz[i]].T
@@ -1042,13 +1158,13 @@ class Xiphos:
 
         return state
 
-    def gd_t_ucc_E(self, params, ansatz):
-        state = self.gd_t_ucc_state(params, ansatz)
+    def gd_t_ucc_E(self, params, ansatz, ref = None):
+        state = self.gd_t_ucc_state(params, ansatz, ref = ref)
         E = (state.T@(self.H_vqe)@state)[0,0].real       
         return E
 
-    def gd_t_ucc_grad(self, params, ansatz):
-        state = self.gd_t_ucc_state(params, ansatz)
+    def gd_t_ucc_grad(self, params, ansatz, ref = None):
+        state = self.gd_t_ucc_state(params, ansatz, ref = ref)
         hstate = self.H_vqe@state
         grad = [2*((hstate.T)@self.pool[ansatz[0]]@state)[0,0]]
 
@@ -1165,6 +1281,28 @@ class Xiphos:
             string += f"{key:<6}:      {val:20.16f}      {err:20.16f}\n"
         string += '\n\n'
         return [res, string]
+
+    def sa_ucc_energy(self, params, ansatz, H, pool, refs, weights):
+        E = 0
+        for i in range(0, len(refs)):
+            if weights[i] < 1e-8:
+                continue
+            E += weights[i]*self.gd_t_ucc_E(params, ansatz, ref = refs[i]) 
+        return E
+
+    def sa_ucc_grad(self, params, ansatz, H, pool, refs, weights):
+        grad = 0
+        for i in range(0, len(refs)):
+            if weights[i] < 1e-8:
+                continue
+            grad += weights[i]*self.gd_t_ucc_grad(params, ansatz, ref = refs[i])
+        return grad
+
+    def sa_vqe(self, params, ansatz):
+        res = scipy.optimize.minimize(self.sa_ucc_energy, params, jac = self.sa_ucc_grad, method = "bfgs", 
+                                      args = (ansatz, self.H_vqe, self.pool, self.refs, self.weights),
+                                      options = {"gtol": 1e-16, "disp": True})
+        return res.x
 
     def gd_multi_vqe(self, params, ansatz, guesses = 0, hf = True, threads = 1, F = None, follow = 0, diags = None, unitaries = None):
         if diags is not None:
@@ -1852,26 +1990,7 @@ def vqe(params, ansatz, H_vqe, pool, ref, strategy = "bfgs", energy = None):
         res = scipy.optimize.minimize(energy, params, jac = jac, method = "bfgs", args = (ansatz, H_vqe, pool, ref), options = {'gtol': 1e-8})
     return res
 
-def sa_ucc_energy(params, ansatz, H, pool, refs, weights):
-    E = 0
-    for i in range(0, len(refs)):
-        if weights[i] < 1e-8:
-            continue
-        E += weights[i]*t_ucc_E(params, ansatz, H, pool, refs[i]) 
-    return E
 
-def sa_ucc_grad(params, ansatz, H, pool, refs, weights):
-    grad = 0
-
-    for i in range(0, len(refs)):
-        if weights[i] < 1e-8:
-            continue
-        grad += weights[i]*t_ucc_grad(params, ansatz, H, pool, refs[i])
-    return grad
-
-def sa_vqe(params, ansatz, xiphos):
-    res = scipy.optimize.minimize(sa_ucc_energy, params, jac = sa_ucc_grad, method = "bfgs", args = (ansatz, xiphos.H_vqe, xiphos.pool, xiphos.refs, xiphos.weights), options = {"gtol": 1e-16, "disp": True})
-    return res.x
 
 def detailed_vqe(params, ansatz, seed, xiphos, jac_svd = False, hess_diag = False):
     energy = t_ucc_E
