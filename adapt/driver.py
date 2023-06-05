@@ -427,7 +427,7 @@ class Xiphos:
 
     def check_eom(self, params, ansatz, ref, eom_space = []):
         print("Intermediate EOM Calculation:")
-        state = t_ucc_state(params, ansatz, self.pool, ref)
+        state = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = ref))
         gs = copy.copy(state)
         E = np.asscalar((gs.T@self.H_vqe@gs).todense())
         E0 = np.ndarray.item((state.T@(self.H@state)).todense())
@@ -440,10 +440,9 @@ class Xiphos:
 
         M = np.zeros((len(eom_space),len(eom_space)))
         for i in range(0, len(eom_space)):
-            state_i = t_ucc_state(params, ansatz, self.pool, eom_space[i])
+            state_i = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = eom_space[i]))
             for j in range(i, len(eom_space)):
-                state_j = t_ucc_state(params, ansatz, self.pool, eom_space[j])
-
+                state_j = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = eom_space[j]))
                 M[i][j] = M[j][i] = (state_j.T@self.H@state_i).todense()
             M[i][i] -= E0
         Mat = scipy.sparse.csc_matrix(M)
@@ -466,7 +465,8 @@ class Xiphos:
                 state += A[i][k] * eom_space[i]
             minus_params = list(-np.array(params))
             #state = t_ucc_state(minus_params, ansatz, self.pool, gs)
-            state = t_ucc_state(params, ansatz, self.pool, state)
+            
+            state = self.gd_t_ucc_state(params, ansatz, ref = state)
             states.append(state)
             state = scipy.sparse.csc_matrix(state)
             E = np.ndarray.item((state.T@(self.H@state)).todense())
@@ -478,10 +478,98 @@ class Xiphos:
                     spins.append(val)
                 if key == "N":
                     numbers.append(val)
-
         return Es, spins, numbers 
 
-    def eom_adapt(self, params, ansatz, ref, eom_space = [], gtol = None, Etol = None, max_depth = None, threads = 1):
+
+    def eom_adapt(self, params, ansatz, ref, eom_space = [], max_depth = 50, diags = None, unitaries = None):
+        self.refs = [ref]
+        self.weights = [1]
+        if diags is None:
+            self.diags = [None for i in self.v_pool]
+            self.unitaries = [None for i in self.v_pool]
+        else:
+            self.diags = diags
+            self.unitaries = unitaries
+        ansatz = copy.copy(ansatz)
+        params = np.array(params)
+        states = []
+        self.ref = ref
+        iteration = len(ansatz)
+        
+        SA_E = 0
+        print("Performing ADAPT:")
+        print(f"\nADAPT Iteration {iteration}")
+        
+        state = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = ref))
+        
+        E = np.ndarray.item((state.T@(self.H@state)).todense())
+
+        print(f"Reference:")
+        for key in self.sym_ops.keys():
+            val = np.ndarray.item((state.T@self.sym_ops[key]@state).todense())
+            err = val - self.ed_syms[0][key]
+            print(f"{key:<6}:      {val:20.16f}      {err:20.16f}")
+        Done = False
+
+        while Done == False:
+            print(f"ADAPT Iteration {iteration}")
+            if iteration == 0:
+                print(f"(HF)")
+            
+            state = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = ref))
+            grad = np.array([2 * np.ndarray.item((state.T@self.H_adapt@(op@state)).todense()) for op in self.pool])
+            gnorm = np.linalg.norm(grad)
+            idx = np.argsort(abs(grad))
+            E = np.ndarray.item((state.T@(self.H@state)).todense())
+            error = E - self.ed_syms[0]["H"]            
+
+            print(f"Next operator to be added: {self.v_pool[idx[-1]]}")
+            print(f"Gradient norm:             {gnorm:20.16f}")
+            print(f"Current ansatz:")
+            for i in range(0, len(ansatz)):
+                print(f"{i} {params[i]} {self.v_pool[ansatz[i]]}") 
+            print("|0>")  
+            
+            if max_depth is not None and len(ansatz)+1 > max_depth:
+                Done = True
+                print(f"\nADAPT finished.  (Max depth reached.)")
+                continue
+            
+            if len(ansatz) > 0 and idx[-1] == ansatz[0]:
+                Done = True
+                print(f"\nADAPT stuck. Aborting")
+                continue
+            iteration += 1
+            print(f"\nADAPT Iteration {iteration}")
+            params = np.array([0] + list(params))              
+            ansatz = [idx[-1]] + ansatz
+            if self.diags[idx[-1]] is None:
+                print("Diagonalizing operator...")
+                start = time.time()
+                G = self.pool[idx[-1]].todense()
+                H = -1j * G
+                w, v = np.linalg.eigh(H)
+                self.diags[idx[-1]] = 1j * w
+                v[abs(v) < 1e-16] = 0
+                v = scipy.sparse.csc_matrix(v)
+                self.unitaries[idx[-1]] = v
+                stop = time.time()
+                print(f"Operator diagonalized in {stop-start} s")
+            H_vqe = copy.copy(self.H_vqe)
+            pool = copy.copy(self.pool)
+            
+            params = self.sa_vqe(params, ansatz)
+            
+            
+            np.save(f"{self.system}/params", params)
+            np.save(f"{self.system}/ops", ansatz)
+        print(f"EOM finished with {len(params)} params")
+
+        Es, spins, numbers = self.check_eom(params, ansatz, ref, eom_space = eom_space)    
+        return Es, spins, numbers
+
+
+    def eom_adapt_old(self, params, ansatz, ref, eom_space = [], gtol = None, Etol = None, max_depth = None, threads = 1):
         ansatz = copy.copy(ansatz)
         params = np.array(params)
         states = []
@@ -581,7 +669,7 @@ class Xiphos:
         return energies 
 
 
-    def state_averaged_adapt(self, refs, maxdepth = 50, diags = None, unitaries = None):
+    def state_averaged_adapt(self, params, ansatz, refs, maxdepth = 50, diags = None, unitaries = None):
         if diags is None:
             self.diags = [None for i in self.v_pool]
             self.unitaries = [None for i in self.v_pool]
@@ -589,10 +677,8 @@ class Xiphos:
             self.diags = diags
             self.unitaries = unitaries
         
-        iteration = 0
-        ansatz = []
-        params = np.array([])
-        refstrings = [format(i.argmax(), f'0{self.N_qubits}b') for i in refs]
+        iteration = len(ansatz)
+                
         #Set of eigenvectors in current manifold
         
         self.refs = refs
@@ -602,12 +688,12 @@ class Xiphos:
         for i in range(0, len(refs)):
             Uri = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[i]))
             for j in range(i, len(refs)):    
-                Urj = scipy.sparse.csc_matrix(t_ucc_state(params, ansatz, self.pool, refs[j]))
+                Urj = scipy.sparse.csc_matrix(self.gd_t_ucc_state(params, ansatz, ref = refs[j]))
                 Hbar[i,j] = Hbar[j,i] = (Uri.T@self.H@Urj).todense()[0,0]
         Es, c = np.linalg.eigh(Hbar)
         self.energies = self.analyze_ensemble(params, ansatz, c)
         self.E_best = Es[0]
-        print("Performing DAMN-ADAPT\n")
+        print("Performing State-Averaged ADAPT\n")
     
         Done = False
         while Done == False:
@@ -642,13 +728,13 @@ class Xiphos:
                     stop = time.time()
                     print(f"Operator diagonalized in {stop-start} s")
 
-            elif idx[-1] == ansatz[0]:
+            elif maxdepth == 0 or idx[-1] == ansatz[0]:
                 print("ADAPT tried to add the same operator again.  Aborting.")
-                return self.energies
+                return self.energies, params, ansatz
             
             else:
                 print("Max circuit depth reached.") 
-                return self.energies
+                return self.energies, params, ansatz
 
             print("Current ansatz:")
             for i in range(0,len(ansatz)):
