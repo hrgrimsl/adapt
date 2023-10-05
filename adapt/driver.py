@@ -133,12 +133,12 @@ class Xiphos:
             params = params + [float(param)]
         return params, ansatz
     
-    def ucc_E(self, params, ansatz):
-        G = params[0]*self.pool[ansatz[0]]
+    def ucc_E(self, params, ansatz, H_vqe, pool, ref):
+        G = params[0]*pool[ansatz[0]]
         for i in range(1, len(ansatz)):
-            G += params[i]*self.pool[ansatz[i]] 
-        state = scipy.sparse.linalg.expm_multiply(G, self.ref)
-        E = ((state.T)@self.H@state).todense()[0,0].real
+            G += params[i]*pool[ansatz[i]] 
+        state = scipy.sparse.linalg.expm_multiply(G, ref)
+        E = ((state.T)@H_vqe@state).todense()[0,0].real
         return E
 
 
@@ -1344,6 +1344,9 @@ def vqe(params, ansatz, H_vqe, pool, ref, strategy = "bfgs", energy = None):
         energy = t_ucc_E
         jac = t_ucc_grad
         hess = t_ucc_hess
+    else:
+        jac = None
+        hess = None
     if strategy == "newton-cg":
         res = scipy.optimize.minimize(energy, params, jac = jac, hess = hess, method = "newton-cg", args = (ansatz, H_vqe, pool, ref), options = {'xtol': 1e-16})
     if strategy == "bfgs":
