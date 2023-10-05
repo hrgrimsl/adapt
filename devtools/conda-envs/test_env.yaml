@@ -10,7 +10,7 @@ dependencies:
   - pip
 
     #Package dependencies
-  - numpy
+  - numpy=1.15
   - scipy
 
     # Testing
